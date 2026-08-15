@@ -306,7 +306,7 @@ class Index:
                 cur.execute("SELECT COUNT(*) FROM documents")
             result = cur.fetchone()[0]
         if not category and self._redis:
-            try: self._redis.setex("stats:doc_count", 120, result)
+            try: self._redis.setex("stats:doc_count", 15, result)
             except: pass
         return result
 

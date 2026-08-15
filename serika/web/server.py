@@ -462,6 +462,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_stats(self) -> None:
         """GET /api/stats — index statistics as JSON."""
+        # Flush stats cache so we always return fresh counts.
+        if self.index._redis:
+            try:
+                self.index._redis.delete("stats:doc_count")
+            except Exception:
+                pass
         data = {
             "pages": self.index.document_count(),
             "images": self.index.image_count(),
