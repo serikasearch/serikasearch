@@ -1,0 +1,59 @@
+# top-gaming — 50 video-game news, storefront & studio sites
+
+# --- news & reviews ---
+https://www.ign.com
+https://www.gamespot.com
+https://www.polygon.com
+https://kotaku.com
+https://www.pcgamer.com
+https://www.rockpapershotgun.com
+https://www.eurogamer.net
+https://www.gamesradar.com
+https://www.destructoid.com
+https://www.gamedeveloper.com
+https://www.giantbomb.com
+https://www.vg247.com
+https://www.videogameschronicle.com
+https://www.nintendolife.com
+https://www.purexbox.com
+https://www.pushsquare.com
+https://www.siliconera.com
+https://www.gematsu.com
+https://www.dualshockers.com
+https://www.thegamer.com
+https://gamerant.com
+https://www.escapistmagazine.com
+https://gamingbolt.com
+https://wccftech.com
+
+# --- storefronts & platforms ---
+https://store.steampowered.com
+https://itch.io
+https://www.gog.com
+https://www.epicgames.com
+https://www.nintendo.com
+https://www.playstation.com
+https://www.xbox.com
+
+# --- publishers & studios ---
+https://www.ea.com
+https://www.ubisoft.com
+https://www.square-enix.com
+https://www.bandainamcoent.com
+https://www.sega.com
+https://www.capcom.com
+https://atlus.com
+https://www.fromsoftware.jp
+https://www.valvesoftware.com
+https://www.blizzard.com
+https://www.riotgames.com
+https://www.minecraft.net
+
+# --- engines, tools & wikis ---
+https://unity.com
+https://www.unrealengine.com
+https://godotengine.org
+https://www.speedrun.com
+https://howlongtobeat.com
+https://www.pcgamingwiki.com
+https://www.moddb.com

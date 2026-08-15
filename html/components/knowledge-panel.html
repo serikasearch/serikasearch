@@ -1,0 +1,16 @@
+<aside class="kpanel" aria-label="Knowledge panel">
+  {{ image_block|safe }}
+  <div class="kpanel-body">
+    <span class="kpanel-kicker">{{ source_name }}</span>
+    <h2 class="kpanel-title">{{ title }}</h2>
+    <p class="kpanel-summary">{{ summary }}</p>
+    <dl class="kpanel-facts">{{ facts|safe }}</dl>
+    {{ gallery_block|safe }}
+    <a class="kpanel-source" href="{{ source_url }}" target="_blank" rel="noopener noreferrer">
+      Read more on {{ source_name }}
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 17 17 7M9 7h8v8"/></svg>
+    </a>
+  </div>
+</aside>

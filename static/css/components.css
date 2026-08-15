@@ -1,0 +1,236 @@
+/* SerikaSearch — reusable components: header, searchbox, tabs, pager, footer. */
+
+/* ---------------------------------------------------------------- header -- */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.header-inner {
+  max-width: var(--serp-max);
+  margin: 0 auto;
+  padding: var(--sp-3) var(--sp-5);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-height: 64px;
+}
+.header .logo { font-size: var(--fs-md); flex-shrink: 0; }
+.header-search { flex: 1 1 auto; max-width: 560px; }
+.header .chip { flex-shrink: 0; }
+
+/* operator badges (site:, -term, intitle:, …) shown beside the searchbox */
+.op-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.op-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-line);
+  color: var(--accent-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background var(--t-fast) var(--ease);
+}
+a.op-badge:hover { background: var(--accent); color: #0a0a0f; }
+.op-badge.op-exclude {
+  background: rgba(255, 95, 95, 0.10);
+  border-color: rgba(255, 95, 95, 0.32);
+  color: #ff9b9b;
+}
+
+.tabs {
+  max-width: var(--serp-max);
+  margin: 0 auto;
+  padding: 0 var(--sp-5);
+  display: flex;
+  gap: var(--sp-1);
+}
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 12px 14px 14px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  transition: color var(--t-fast) var(--ease);
+}
+.tab:hover { color: var(--text-1); }
+.tab-label { letter-spacing: 0.01em; }
+.tab .n {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  transition: background var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease);
+}
+.tab.active {
+  color: var(--text-1);
+}
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+.tab.active .n {
+  background: var(--accent-dim);
+  color: var(--accent-2);
+  border-color: var(--accent-line);
+}
+
+/* ------------------------------------------------------------- searchbox -- */
+.searchbox {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-pill);
+  padding: 6px 6px 6px 16px;
+  transition: border-color var(--t-med) var(--ease),
+              background var(--t-med) var(--ease),
+              box-shadow var(--t-med) var(--ease);
+}
+.searchbox:focus-within {
+  border-color: var(--accent-line);
+  background: var(--bg-2);
+  box-shadow: 0 0 0 4px var(--accent-dim);
+}
+.searchbox .ico {
+  display: inline-flex;
+  color: var(--text-3);
+  flex-shrink: 0;
+  transition: color var(--t-med) var(--ease);
+}
+.searchbox:focus-within .ico { color: var(--accent); }
+
+.searchbox input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-1);
+  font-size: var(--fs-md);
+  padding: 8px 4px;
+}
+.searchbox input::placeholder { color: var(--text-3); }
+
+.searchbox .clear-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: var(--text-3);
+  flex-shrink: 0;
+  transition: background var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease);
+}
+.searchbox .clear-btn:hover { background: var(--bg-3); color: var(--text-1); }
+.searchbox.has-value .clear-btn { display: inline-flex; }
+
+.searchbox .submit-btn {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #0a0a0f;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  padding: 8px 18px;
+  border-radius: var(--r-pill);
+  transition: background var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+}
+.searchbox .submit-btn:hover { background: var(--accent-2); }
+.searchbox .submit-btn:active { background: var(--accent-3); transform: scale(0.97); }
+
+/* ----------------------------------------------------------------- pager -- */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-5);
+  padding: var(--sp-6) 0 var(--sp-7);
+  flex-wrap: wrap;
+}
+.pager-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 9px 18px;
+  border-radius: var(--r-pill);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  transition: background var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+}
+.pager-btn:hover {
+  background: var(--bg-3);
+  border-color: var(--border-2);
+  color: var(--text-1);
+  transform: translateY(-1px);
+}
+.pager-btn.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.page-of {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- footer -- */
+.footer {
+  max-width: var(--serp-max);
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-5);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  border-top: 1px solid var(--border);
+  margin-top: var(--sp-7);
+}
+.footer-brand { color: var(--text-2); font-weight: 600; }
+.footer-brand em { color: var(--accent); font-style: normal; }
+.footer-sep { color: var(--border-2); }
+
+/* ---------------------------------------------------------- responsive -- */
+@media (max-width: 720px) {
+  .header-inner { flex-wrap: wrap; padding: var(--sp-3); gap: var(--sp-3); }
+  .header-search { order: 3; flex: 1 1 100%; max-width: none; }
+  .header .logo { font-size: var(--fs-sm); }
+  .tabs { padding: 0 var(--sp-3); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .footer { justify-content: center; text-align: center; }
+}

@@ -1,0 +1,12 @@
+<main class="home">
+  <a href="/" class="logo logo-lg" aria-label="SerikaSearch">serika<em>search</em></a>
+  <div class="home-search">{{ searchbox|safe }}</div>
+  <div class="home-stats">
+    <span class="stat"><b>{{ pages }}</b> pages</span>
+    <span class="stat-dot"></span>
+    <span class="stat"><b>{{ images }}</b> images</span>
+    <span class="stat-dot"></span>
+    <span class="stat"><b>{{ sites }}</b> sites</span>
+  </div>
+</main>
+{% include "components/footer.html" %}

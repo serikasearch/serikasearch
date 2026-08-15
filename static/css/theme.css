@@ -1,0 +1,79 @@
+/* SerikaSearch — design tokens.
+   AMOLED true-black canvas with a restrained purple accent. Every colour,
+   spacing unit, radius and shadow is defined once here so the rest of the UI
+   stays consistent and trivially re-themeable. */
+
+:root {
+  /* canvas — true black, with faint elevation tiers that never leave AMOLED */
+  --bg:        #000000;
+  --bg-1:      #08080d;
+  --bg-2:      #0e0e16;
+  --bg-3:      #14141f;
+  --bg-hover:  #16161f;
+
+  /* text — cool neutrals, three clear weights of contrast */
+  --text-1:    #ececf4;   /* primary */
+  --text-2:    #a7a7bd;   /* secondary */
+  --text-3:    #6b6b85;   /* muted / metadata */
+
+  /* accent — a single purple, with dim/line variants */
+  --accent:    #a274ff;
+  --accent-2:  #c4a7ff;   /* hover / focus */
+  --accent-3:  #7d52e0;   /* pressed */
+  --accent-dim:   rgba(162, 116, 255, 0.14);
+  --accent-line:  rgba(162, 116, 255, 0.40);
+
+  /* search-term highlight */
+  --mark-bg:   rgba(162, 116, 255, 0.28);
+  --mark-text: #ecd9ff;
+
+  /* lines & surfaces */
+  --border:    rgba(255, 255, 255, 0.07);
+  --border-2:  rgba(255, 255, 255, 0.12);
+  --surface:   rgba(255, 255, 255, 0.025);
+
+  /* radii */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+
+  /* spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* typography */
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+               monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 30px;
+  --fs-3xl: 44px;
+
+  /* motion */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 120ms;
+  --t-med: 220ms;
+  --t-slow: 420ms;
+
+  /* layout */
+  --content-max: 720px;
+  --serp-max: 1180px;
+  --header-h: 132px;
+}
+
+/* keep the canvas truly black on OLED, even in form controls */
+html { background: var(--bg); }

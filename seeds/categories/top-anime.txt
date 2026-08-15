@@ -1,0 +1,63 @@
+# top-anime — 50 anime & manga sites
+# Category is derived from this filename ("anime").
+#   python -m serika crawl seeds/top-anime.txt
+# serikacrawler checks each site's robots.txt and skips whatever it disallows.
+
+# --- databases & communities ---
+https://myanimelist.net
+https://anilist.co
+https://www.anime-planet.com
+https://kitsu.app
+https://anidb.net
+https://livechart.me
+https://notify.moe
+https://shikimori.one
+https://annict.com
+https://mangadex.org
+https://www.mangaupdates.com
+https://www.novelupdates.com
+
+# --- news & editorial ---
+https://www.animenewsnetwork.com
+https://animecorner.me
+https://animehunch.com
+https://www.animeuknews.net
+https://otakuusamagazine.com
+https://www.animefeminist.com
+https://honeysanime.com
+https://soranews24.com
+https://animeanime.jp
+https://natalie.mu
+https://www.crunchyroll.com
+https://comicbook.com
+https://screenrant.com
+https://www.cbr.com
+https://collider.com
+https://www.polygon.com
+https://gamerant.com
+https://sakugabooru.com
+https://animetudes.com
+https://fullfrontal.moe
+
+# --- studios ---
+https://www.ufotable.com
+https://www.kyotoanimation.co.jp
+https://trigger.co.jp
+https://wit-studio.com
+https://www.bones.co.jp
+https://pierrot.jp
+https://www.sunrise-inc.co.jp
+https://cloverworks.co.jp
+https://www.production-ig.co.jp
+https://www.madhouse.co.jp
+https://www.toei-anim.co.jp
+https://www.tms-e.co.jp
+https://www.khara.co.jp
+https://www.ghibli.jp
+
+# --- publishers & distributors ---
+https://www.viz.com
+https://yenpress.com
+https://sevenseasentertainment.com
+https://j-novel.club
+https://www.hidive.com

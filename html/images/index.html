@@ -1,0 +1,11 @@
+{{ header|safe }}
+<main class="img-results">
+  <div class="img-toolbar">
+    <p class="result-meta">{{ meta|safe }}</p>
+    <div class="img-filters">{{ filters|safe }}</div>
+  </div>
+  <div class="image-grid">{{ cards|safe }}</div>
+  {{ pager|safe }}
+</main>
+{% include "components/lightbox.html" %}
+{% include "components/footer.html" %}

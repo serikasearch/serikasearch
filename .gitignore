@@ -1,0 +1,24 @@
+# Secrets / config
+.env
+config.local.json
+serika/config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Old migration artifacts
+db/
+sessions/
+
+# OS
+.DS_Store
+Thumbs.db

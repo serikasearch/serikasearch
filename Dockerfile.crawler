@@ -1,0 +1,7 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+# Run the crawler in 24/7 loop mode, loading all seed categories
+CMD ["python", "-m", "serika", "loop", "--max-pages", "10000", "--max-depth", "3", "--per-host", "40", "--workers", "12", "--delay", "0.6", "--timeout", "15", "--rest-time", "300"]

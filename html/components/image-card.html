@@ -1,0 +1,19 @@
+<a class="image-card" style="--i:{{ i }};--ratio:{{ ratio }}" href="{{ page_url }}"
+   target="_blank" rel="noopener noreferrer"
+   data-src="{{ src }}" data-page="{{ page_url }}"
+   data-title="{{ caption }}" data-host="{{ host }}">
+  <span class="thumb-wrap">
+    <img class="thumb" src="{{ src }}" alt="" loading="lazy" decoding="async"
+         referrerpolicy="no-referrer"
+         onload="this.closest('.image-card').classList.add('loaded')"
+         onerror="this.closest('.image-card').classList.add('img-broken')"/>
+  </span>
+  <span class="cap">
+    <img class="cap-icon" src="/icon?h={{ host_q }}" alt="" width="16" height="16"
+         loading="lazy" decoding="async"/>
+    <span class="cap-text">
+      <span class="cap-title">{{ caption }}</span>
+      <span class="cap-host">{{ host }}</span>
+    </span>
+  </span>
+</a>

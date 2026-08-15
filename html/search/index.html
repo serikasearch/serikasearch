@@ -1,0 +1,11 @@
+{{ header|safe }}
+<div class="serp {{ serp_mod }}">
+  <main class="serp-main">
+    <p class="result-meta">{{ meta|safe }}</p>
+    <div class="result-list">{{ results|safe }}</div>
+    {{ pager|safe }}
+  </main>
+  <div class="serp-aside">{{ knowledge|safe }}</div>
+</div>
+{% include "components/video-modal.html" %}
+{% include "components/footer.html" %}

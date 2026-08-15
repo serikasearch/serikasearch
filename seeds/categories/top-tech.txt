@@ -1,0 +1,60 @@
+# top-tech — 50 technology & software-engineering sites
+
+# --- news ---
+https://arstechnica.com
+https://www.theverge.com
+https://techcrunch.com
+https://www.wired.com
+https://www.engadget.com
+https://www.zdnet.com
+https://www.cnet.com
+https://www.tomshardware.com
+https://www.phoronix.com
+https://lwn.net
+https://news.ycombinator.com
+https://slashdot.org
+https://hackaday.com
+https://www.theregister.com
+https://www.infoworld.com
+https://venturebeat.com
+https://9to5mac.com
+https://9to5google.com
+https://www.androidauthority.com
+https://www.androidpolice.com
+https://www.xda-developers.com
+https://www.macrumors.com
+https://appleinsider.com
+https://www.thurrott.com
+https://www.neowin.net
+
+# --- security ---
+https://www.bleepingcomputer.com
+https://krebsonsecurity.com
+https://www.schneier.com
+https://therecord.media
+https://www.darkreading.com
+
+# --- engineering blogs ---
+https://stackoverflow.blog
+https://github.blog
+https://developers.googleblog.com
+https://engineering.fb.com
+https://netflixtechblog.com
+https://blog.cloudflare.com
+https://martinfowler.com
+https://www.joelonsoftware.com
+https://danluu.com
+https://jvns.ca
+https://simonwillison.net
+
+# --- languages, platforms & docs ---
+https://blog.rust-lang.org
+https://www.python.org
+https://go.dev
+https://www.kernel.org
+https://hacks.mozilla.org
+https://developer.mozilla.org
+https://web.dev
+https://css-tricks.com
+https://www.smashingmagazine.com
+https://alistapart.com

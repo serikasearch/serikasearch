@@ -1,0 +1,38 @@
+<aside class="lb-sidebar" id="lightbox" hidden aria-hidden="true" role="dialog"
+       aria-modal="false" aria-label="Image details">
+  <button class="lb-close" data-close aria-label="Close">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+
+  <div class="lb-sidebar-body">
+    <div class="lb-stage">
+      <img class="lb-img" alt="" referrerpolicy="no-referrer"/>
+    </div>
+
+    <div class="lb-meta">
+      <div class="lb-meta-head">
+        <img class="lb-favicon" alt="" width="16" height="16"/>
+        <div class="lb-meta-text">
+          <h2 class="lb-title"></h2>
+          <a class="lb-host" target="_blank" rel="noopener noreferrer"></a>
+        </div>
+      </div>
+      <div class="lb-actions">
+        <a class="lb-action lb-visit" target="_blank" rel="noopener noreferrer">
+          Visit page
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 17 17 7M9 7h8v8"/></svg>
+        </a>
+        <a class="lb-action lb-open" target="_blank" rel="noopener noreferrer">Open image</a>
+      </div>
+    </div>
+
+    <div class="lb-similar">
+      <h3 class="lb-similar-heading">Similar</h3>
+      <div class="lb-similar-grid" aria-live="polite"></div>
+      <p class="lb-similar-empty" hidden>No similar images found.</p>
+    </div>
+  </div>
+</aside>

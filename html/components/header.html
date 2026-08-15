@@ -1,0 +1,8 @@
+<header class="header">
+  <div class="header-inner">
+    {% include "components/wordmark.html" %}
+    <div class="header-search">{{ searchbox|safe }}</div>
+    {{ op_badges|safe }}
+  </div>
+  <nav class="tabs" aria-label="Result types">{{ tabs|safe }}</nav>
+</header>

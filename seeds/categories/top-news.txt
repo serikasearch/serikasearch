@@ -1,0 +1,64 @@
+# top-news — 50 general news sites
+# Several of these disallow crawlers in robots.txt; serikacrawler will honour
+# that and skip them. That is expected behaviour, not a failure.
+
+# --- wires & broadcasters ---
+https://www.reuters.com
+https://apnews.com
+https://www.bbc.com
+https://www.npr.org
+https://www.aljazeera.com
+https://www.dw.com
+https://www.france24.com
+https://www.euronews.com
+https://www.cbc.ca
+https://www.abc.net.au
+
+# --- newspapers ---
+https://www.theguardian.com
+https://www.nytimes.com
+https://www.washingtonpost.com
+https://www.wsj.com
+https://www.ft.com
+https://www.usatoday.com
+https://www.latimes.com
+https://www.chicagotribune.com
+https://www.bostonglobe.com
+https://www.sfchronicle.com
+https://www.seattletimes.com
+https://www.denverpost.com
+https://www.miamiherald.com
+
+# --- business ---
+https://www.economist.com
+https://www.bloomberg.com
+https://www.cnbc.com
+https://fortune.com
+https://www.businessinsider.com
+
+# --- international ---
+https://www.japantimes.co.jp
+https://www.scmp.com
+https://www.straitstimes.com
+https://www.thehindu.com
+https://indianexpress.com
+https://timesofindia.indiatimes.com
+https://www.haaretz.com
+https://www.jpost.com
+https://elpais.com
+https://www.lemonde.fr
+https://www.spiegel.de
+https://www.zeit.de
+https://www.corriere.it
+
+# --- politics & investigative ---
+https://www.politico.com
+https://www.politico.eu
+https://www.axios.com
+https://thehill.com
+https://www.propublica.org
+https://theintercept.com
+https://www.motherjones.com
+https://www.theatlantic.com
+https://www.newyorker.com
+https://time.com

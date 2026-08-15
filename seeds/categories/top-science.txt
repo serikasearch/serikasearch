@@ -1,0 +1,57 @@
+# top-science — 50 science, research & space sites
+
+# --- journals & publishers ---
+https://www.nature.com
+https://www.science.org
+https://arxiv.org
+https://www.biorxiv.org
+https://plos.org
+https://elifesciences.org
+https://www.pnas.org
+https://www.cell.com
+https://www.thelancet.com
+https://www.nejm.org
+https://www.bmj.com
+
+# --- magazines & news ---
+https://www.scientificamerican.com
+https://www.newscientist.com
+https://www.quantamagazine.org
+https://phys.org
+https://www.sciencedaily.com
+https://www.eurekalert.org
+https://www.livescience.com
+https://www.space.com
+https://www.sciencenews.org
+https://www.smithsonianmag.com
+https://www.nationalgeographic.com
+https://www.discovermagazine.com
+https://www.chemistryworld.com
+https://physicsworld.com
+https://www.astronomy.com
+https://www.universetoday.com
+https://skyandtelescope.org
+
+# --- agencies & institutions ---
+https://www.nasa.gov
+https://www.esa.int
+https://www.jpl.nasa.gov
+https://www.noaa.gov
+https://www.usgs.gov
+https://www.nih.gov
+https://www.ncbi.nlm.nih.gov
+https://pubmed.ncbi.nlm.nih.gov
+https://www.nsf.gov
+https://home.cern
+https://www.fnal.gov
+https://www.ligo.caltech.edu
+https://www.eso.org
+https://hubblesite.org
+https://webbtelescope.org
+https://royalsociety.org
+https://www.aaas.org
+https://www.aps.org
+https://www.ams.org
+https://www.mpg.de
+https://www.riken.jp
+https://wellcome.org
