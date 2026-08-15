@@ -188,10 +188,10 @@ class Index:
             raise ValueError("No database_url in config.json or DATABASE_URL env")
 
         self._pool = psycopg2.pool.ThreadedConnectionPool(
-            1, 20, db_url,
+            5, 60, db_url,
         )
         self._local = threading.local()
-        self._write_lock = threading.RLock()
+        self._write_lock = threading.RLock()  # kept for compat but unused
 
         # Redis for frontier + caching.
         self._redis: Optional[redis.Redis] = None
@@ -263,33 +263,32 @@ class Index:
         status: int = 200,
     ) -> None:
         word_count = len(body.split())
-        with self._write_lock:
-            conn = self._get_conn()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO documents (url, title, description, body, host,
-                                               lang, category, word_count, fetched_at, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT(url) DO UPDATE SET
-                            title=EXCLUDED.title,
-                            description=EXCLUDED.description,
-                            body=EXCLUDED.body,
-                            host=EXCLUDED.host,
-                            lang=EXCLUDED.lang,
-                            category=COALESCE(NULLIF(EXCLUDED.category,''), documents.category),
-                            word_count=EXCLUDED.word_count,
-                            fetched_at=EXCLUDED.fetched_at,
-                            status=EXCLUDED.status
-                        """,
-                        (url, title, description, body, host, lang, category,
-                         word_count, time.time(), status),
-                    )
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO documents (url, title, description, body, host,
+                                           lang, category, word_count, fetched_at, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT(url) DO UPDATE SET
+                        title=EXCLUDED.title,
+                        description=EXCLUDED.description,
+                        body=EXCLUDED.body,
+                        host=EXCLUDED.host,
+                        lang=EXCLUDED.lang,
+                        category=COALESCE(NULLIF(EXCLUDED.category,''), documents.category),
+                        word_count=EXCLUDED.word_count,
+                        fetched_at=EXCLUDED.fetched_at,
+                        status=EXCLUDED.status
+                    """,
+                    (url, title, description, body, host, lang, category,
+                     word_count, time.time(), status),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def document_count(self, category: str = "") -> int:
         if not category and self._redis:
@@ -364,26 +363,63 @@ class Index:
         category: str = "",
     ) -> bool:
         """Insert an image if we haven't seen this src. Returns True if new."""
-        with self._write_lock:
-            conn = self._get_conn()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """INSERT INTO images
-                           (src, page_url, page_title, host, alt, title, width, height,
-                            is_logo, category, added_at)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                           ON CONFLICT (src) DO NOTHING
-                           RETURNING id""",
-                        (src, page_url, page_title, host, alt, title, width, height,
-                         1 if is_logo else 0, category, time.time()),
-                    )
-                    row = cur.fetchone()
-                conn.commit()
-                return row is not None
-            except Exception:
-                conn.rollback()
-                raise
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO images
+                       (src, page_url, page_title, host, alt, title, width, height,
+                        is_logo, category, added_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (src) DO NOTHING
+                       RETURNING id""",
+                    (src, page_url, page_title, host, alt, title, width, height,
+                     1 if is_logo else 0, category, time.time()),
+                )
+                row = cur.fetchone()
+            conn.commit()
+            return row is not None
+        except Exception:
+            conn.rollback()
+            raise
+
+    def add_images_batch(
+        self, images: list[dict], category: str = ""
+    ) -> int:
+        """Batch-insert images. Each dict has keys: src, page_url, page_title,
+        host, alt, title, width, height, is_logo, category.
+        Returns number of new images added."""
+        if not images:
+            return 0
+        now = time.time()
+        rows = [
+            (img["src"], img.get("page_url", ""), img.get("page_title", ""),
+             img.get("host", ""), img.get("alt", ""), img.get("title", ""),
+             img.get("width", 0), img.get("height", 0),
+             1 if img.get("is_logo") else 0,
+             img.get("category", "") or category, now)
+            for img in images
+        ]
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                from psycopg2.extras import execute_values
+                execute_values(
+                    cur,
+                    """INSERT INTO images
+                       (src, page_url, page_title, host, alt, title, width, height,
+                        is_logo, category, added_at)
+                       VALUES %s
+                       ON CONFLICT (src) DO NOTHING
+                       RETURNING id""",
+                    rows,
+                )
+                added = len(cur.fetchall())
+            conn.commit()
+            return added
+        except Exception:
+            conn.rollback()
+            raise
 
     def image_count(self, sites: list[str] | None = None) -> int:
         conn = self._get_conn()
@@ -589,26 +625,25 @@ class Index:
         category: str = "",
     ) -> bool:
         """Insert a video if not already indexed. Returns True if new."""
-        with self._write_lock:
-            conn = self._get_conn()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """INSERT INTO videos
-                           (embed_id, platform, page_url, page_title, host,
-                            thumbnail, category, added_at)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                           ON CONFLICT (embed_id, platform) DO NOTHING
-                           RETURNING id""",
-                        (embed_id, platform, page_url, page_title, host,
-                         thumbnail, category, time.time()),
-                    )
-                    row = cur.fetchone()
-                conn.commit()
-                return row is not None
-            except Exception:
-                conn.rollback()
-                raise
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO videos
+                       (embed_id, platform, page_url, page_title, host,
+                        thumbnail, category, added_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (embed_id, platform) DO NOTHING
+                       RETURNING id""",
+                    (embed_id, platform, page_url, page_title, host,
+                     thumbnail, category, time.time()),
+                )
+                row = cur.fetchone()
+            conn.commit()
+            return row is not None
+        except Exception:
+            conn.rollback()
+            raise
 
     def video_count(self) -> int:
         conn = self._get_conn()
@@ -719,23 +754,22 @@ class Index:
     # ----- favicons --------------------------------------------------------
 
     def set_favicon(self, host: str, data: bytes, content_type: str) -> None:
-        with self._write_lock:
-            conn = self._get_conn()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """INSERT INTO favicons (host, data, content_type, fetched_at)
-                           VALUES (%s, %s, %s, %s)
-                           ON CONFLICT (host) DO UPDATE SET
-                             data=EXCLUDED.data,
-                             content_type=EXCLUDED.content_type,
-                             fetched_at=EXCLUDED.fetched_at""",
-                        (host, psycopg2.Binary(data), content_type, time.time()),
-                    )
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO favicons (host, data, content_type, fetched_at)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (host) DO UPDATE SET
+                         data=EXCLUDED.data,
+                         content_type=EXCLUDED.content_type,
+                         fetched_at=EXCLUDED.fetched_at""",
+                    (host, psycopg2.Binary(data), content_type, time.time()),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def get_favicon(self, host: str) -> Optional[tuple[bytes, str]]:
         conn = self._get_conn()
@@ -807,6 +841,27 @@ class Index:
         self._redis.delete(f"frontier:meta:{url}")
         self._redis.sadd("crawled", url)
         return url, depth, category
+
+    def claim_batch(self, count: int = 10) -> list[tuple[str, int, str]]:
+        """Atomically claim multiple frontier URLs at once to reduce Redis
+        round-trips. Returns a list of (url, depth, category) tuples."""
+        if not self._redis:
+            return []
+        results = self._redis.zpopmin("frontier", count)
+        if not results:
+            return []
+        out = []
+        pipe = self._redis.pipeline()
+        for url, depth in results:
+            pipe.hgetall(f"frontier:meta:{url}")
+            pipe.delete(f"frontier:meta:{url}")
+            pipe.sadd("crawled", url)
+        pipe_responses = pipe.execute()
+        for i, (url, depth) in enumerate(results):
+            meta = pipe_responses[i * 3] if i * 3 < len(pipe_responses) else {}
+            category = meta.get("category", "") if meta else ""
+            out.append((url, int(depth), category))
+        return out
 
     def frontier_pending(self) -> int:
         if not self._redis:

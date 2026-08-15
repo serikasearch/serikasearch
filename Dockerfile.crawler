@@ -3,5 +3,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-# Run the crawler in 24/7 loop mode, loading all seed categories
-CMD ["python", "-m", "serika", "loop", "--max-pages", "10000", "--max-depth", "3", "--per-host", "40", "--workers", "12", "--delay", "0.6", "--timeout", "15", "--rest-time", "300"]
+# Run the crawler in 24/7 loop mode with fast settings: 50 workers, 0.3s delay,
+# 200 pages/host, depth 4, 100k page budget per cycle.
+CMD ["python", "-m", "serika", "loop", "--max-pages", "100000", "--max-depth", "4", "--per-host", "200", "--workers", "50", "--delay", "0.3", "--timeout", "12", "--rest-time", "60"]

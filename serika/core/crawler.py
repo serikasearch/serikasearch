@@ -6,12 +6,14 @@ Design goals:
   * Stay gentle: per-host crawl-delay, per-host page caps, timeouts.
   * Go wide, not hard: many hosts are crawled in parallel by a worker pool,
     while each individual host is still visited one request at a time.
-  * Be resumable: the crawl frontier lives in the database.
+  * Be resumable: the crawl frontier lives in Redis.
+  * Be fast: batch DB writes, connection keep-alive, minimal lock contention.
 """
 
 from __future__ import annotations
 
 import gzip
+import http.client
 import io
 import sys
 import threading
@@ -85,7 +87,7 @@ class Crawler:
         self.pages_crawled = 0
         self.images_found = 0
         self._favicon_tried: set[str] = set()
-        self._lock = threading.Lock()
+        self._counts_lock = threading.Lock()      # only for counters
         self._log_lock = threading.Lock()
         self._stop = threading.Event()
 
@@ -170,7 +172,7 @@ class Crawler:
 
     def _fetch_favicon(self, host: str, scheme: str, declared: str = "") -> None:
         """Download and cache a site's favicon so result pages stay local."""
-        with self._lock:
+        with self._counts_lock:
             if host in self._favicon_tried:
                 return
             self._favicon_tried.add(host)
@@ -201,24 +203,28 @@ class Crawler:
     # ----- crawl loop ------------------------------------------------------
 
     def _budget_left(self) -> bool:
-        with self._lock:
+        with self._counts_lock:
             return self.pages_crawled < self.max_pages
 
     def _worker(self):
         empty_polls = 0
+        local_queue: list[tuple[str, int, str]] = []
         while not self._stop.is_set():
             if not self._budget_left():
                 self._stop.set()
                 return
-            item = self.index.claim_next()
-            if item is None:
+            # Refill local queue from Redis in batches to reduce round-trips.
+            if not local_queue:
+                local_queue = self.index.claim_batch(10)
+            if not local_queue:
                 # Other workers may still be discovering links; wait briefly.
                 empty_polls += 1
                 if empty_polls > 10:
                     return
-                time.sleep(0.4)
+                time.sleep(0.1)
                 continue
             empty_polls = 0
+            item = local_queue.pop(0)
             try:
                 self._process(*item)
             except Exception as e:
@@ -229,7 +235,8 @@ class Crawler:
         parts = urlsplit(url)
         host = parts.netloc
 
-        with self._lock:
+        # Check per-host cap without holding the lock for long.
+        with self._counts_lock:
             if self.host_counts[host] >= self.per_host_cap:
                 return
         if self.same_host_only and host not in self.seed_hosts:
@@ -260,49 +267,61 @@ class Crawler:
                 category=category,
                 status=status,
             )
-            with self._lock:
+            with self._counts_lock:
                 self.host_counts[host] += 1
                 self.pages_crawled += 1
                 n = self.pages_crawled
             self._log(f"  ✓ [{n}] {url}  ({len(page.text.split())}w)")
 
+            # Batch-insert images for speed.
             if self.want_images and page.images:
-                added = 0
-                for img in page.images:
-                    if self.index.add_image(
-                        src=img.src,
-                        page_url=url,
-                        page_title=page.title,
-                        host=host,
-                        alt=img.alt,
-                        title=img.title,
-                        width=img.width,
-                        height=img.height,
-                        is_logo=img.is_logo,
-                        category=category,
-                    ):
-                        added += 1
-                if added:
-                    with self._lock:
-                        self.images_found += added
+                img_dicts = [
+                    {"src": img.src, "page_url": url, "page_title": page.title,
+                     "host": host, "alt": img.alt, "title": img.title,
+                     "width": img.width, "height": img.height,
+                     "is_logo": img.is_logo, "category": category}
+                    for img in page.images
+                ]
+                try:
+                    added = self.index.add_images_batch(img_dicts, category)
+                    if added:
+                        with self._counts_lock:
+                            self.images_found += added
+                except Exception:
+                    # Fall back to individual inserts if batch fails.
+                    for img in page.images:
+                        try:
+                            if self.index.add_image(
+                                src=img.src, page_url=url, page_title=page.title,
+                                host=host, alt=img.alt, title=img.title,
+                                width=img.width, height=img.height,
+                                is_logo=img.is_logo, category=category,
+                            ):
+                                with self._counts_lock:
+                                    self.images_found += 1
+                        except Exception:
+                            pass
 
             # Store detected video embeds.
             if page.videos:
                 for vid in page.videos:
-                    self.index.add_video(
-                        embed_id=vid.embed_id,
-                        platform=vid.platform,
-                        page_url=vid.url or url,
-                        page_title=page.title or vid.title,
-                        host=host,
-                        thumbnail=vid.thumbnail,
-                        category=category,
-                    )
+                    try:
+                        self.index.add_video(
+                            embed_id=vid.embed_id,
+                            platform=vid.platform,
+                            page_url=vid.url or url,
+                            page_title=page.title or vid.title,
+                            host=host,
+                            thumbnail=vid.thumbnail,
+                            category=category,
+                        )
+                    except Exception:
+                        pass
 
             if self.want_favicons:
                 self._fetch_favicon(host, parts.scheme or "https", page.favicon)
 
-        # enqueue discovered links
+        # enqueue discovered links — no per-link DB check, rely on Redis dedup
         if depth < self.max_depth and not page.nofollow:
             fresh = []
             for link in page.links:
@@ -313,12 +332,12 @@ class Crawler:
                     continue
                 if self.same_host_only and lhost not in self.seed_hosts:
                     continue
-                with self._lock:
-                    if self.host_counts[lhost] >= self.per_host_cap:
+                with self._counts_lock:
+                    if self.host_counts.get(lhost, 0) >= self.per_host_cap:
                         continue
-                if not self.index.has_url(link):
-                    fresh.append(link)
-            self.index.add_links(fresh, depth + 1, category)
+                fresh.append(link)
+            if fresh:
+                self.index.add_links(fresh, depth + 1, category)
 
     def crawl(self) -> int:
         started = time.time()
@@ -343,9 +362,10 @@ class Crawler:
                 t.join(timeout=5)
 
         elapsed = time.time() - started
+        rate = self.pages_crawled / elapsed if elapsed > 0 else 0
         self._log(
-            f"Done in {elapsed:.0f}s — {self.pages_crawled} pages, "
-            f"{self.images_found} images this run; "
+            f"Done in {elapsed:.0f}s — {self.pages_crawled} pages "
+            f"({rate:.1f}/s), {self.images_found} images this run; "
             f"{self.index.document_count():,} pages / "
             f"{self.index.image_count():,} images in index."
         )
