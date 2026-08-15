@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -291,13 +292,24 @@ class Index:
                 raise
 
     def document_count(self, category: str = "") -> int:
+        if not category and self._redis:
+            cached = self._redis.get("stats:doc_count")
+            if cached is not None:
+                try:
+                    return int(cached)
+                except Exception:
+                    pass
         conn = self._get_conn()
         with conn.cursor() as cur:
             if category:
                 cur.execute("SELECT COUNT(*) FROM documents WHERE category=%s", (category,))
             else:
                 cur.execute("SELECT COUNT(*) FROM documents")
-            return cur.fetchone()[0]
+            result = cur.fetchone()[0]
+        if not category and self._redis:
+            try: self._redis.setex("stats:doc_count", 120, result)
+            except: pass
+        return result
 
     def hosts(self) -> list[tuple[str, int]]:
         if self._redis:
@@ -483,7 +495,9 @@ class Index:
         logo_penalty = 0.0 if ("logo" in q_lower or "icon" in q_lower) else 1.5
 
         # Use a CTE to rank+filter first, then apply logo penalty in outer query.
-        where = "WHERE i.tsv @@ websearch_to_tsquery('english', %s)"
+        # Filter out 0x0 images (tracking pixels, broken images) unless we have
+        # very few results — they're never useful in image search.
+        where = "WHERE i.tsv @@ websearch_to_tsquery('english', %s) AND (i.width > 0 AND i.height > 0)"
         params: list = [qtext]
 
         all_sites = list(parsed.sites)
@@ -510,8 +524,9 @@ class Index:
             " FROM ranked sub"
             f" ORDER BY (sub.score"
             f"  - {logo_penalty} * sub.is_logo"
-            f"  + 0.3 * CASE WHEN sub.width > 0 AND sub.height > 0 THEN 1 ELSE 0 END"
-            f"  + 0.2 * CASE WHEN sub.width * sub.height > 100000 THEN 1 ELSE 0 END"
+            f"  + 0.5 * CASE WHEN sub.width > 100 AND sub.height > 100 THEN 1 ELSE 0 END"
+            f"  + 0.3 * CASE WHEN sub.width * sub.height > 50000 THEN 1 ELSE 0 END"
+            f"  + 0.1 * CASE WHEN sub.alt <> '' THEN 1 ELSE 0 END"
             f") DESC LIMIT %s OFFSET %s"
         )
         params = [self._RANK_WEIGHTS, qtext] + params + [limit, offset]
@@ -551,7 +566,8 @@ class Index:
             return 0
         all_sites = list(sites or []) + list(parsed.sites)
         sql = ("SELECT COUNT(*) FROM images i "
-               "WHERE i.tsv @@ websearch_to_tsquery('english', %s)")
+               "WHERE i.tsv @@ websearch_to_tsquery('english', %s) "
+               "AND (i.width > 0 AND i.height > 0)")
         params: list = [fts]
         if all_sites:
             likes = " OR ".join("i.host ILIKE %s" for _ in all_sites)
@@ -606,19 +622,34 @@ class Index:
         """Search indexed videos by title/host."""
         parsed = query if isinstance(query, ParsedQuery) else parse(query)
         fts = parsed.fts
+
+        # Check Redis cache.
+        cache_key = f"vidsearch:{hashlib.md5(f'{fts}|{parsed.sites}|{limit}|{offset}'.encode()).hexdigest()}"
+        if self._redis:
+            cached = self._redis.get(cache_key)
+            if cached:
+                try:
+                    return json.loads(cached)
+                except Exception:
+                    pass
+
         conn = self._get_conn()
         if not fts:
             sql = ("SELECT embed_id, platform, page_url, page_title, host, "
                    "thumbnail FROM videos ORDER BY added_at DESC "
                    "LIMIT %s OFFSET %s")
-            with conn.cursor() as cur:
-                cur.execute(sql, [limit, offset])
-                return [
-                    {"embed_id": r[0], "platform": r[1], "page_url": r[2] or "",
-                     "page_title": r[3] or "", "host": r[4] or "",
-                     "thumbnail": r[5] or ""}
-                    for r in cur.fetchall()
-                ]
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, [limit, offset])
+                    results = [
+                        {"embed_id": r[0], "platform": r[1], "page_url": r[2] or "",
+                         "page_title": r[3] or "", "host": r[4] or "",
+                         "thumbnail": r[5] or ""}
+                        for r in cur.fetchall()
+                    ]
+            except Exception:
+                conn.rollback()
+                return []
         else:
             sql = ("SELECT v.embed_id, v.platform, v.page_url, v.page_title, "
                    "v.host, v.thumbnail, "
@@ -629,24 +660,46 @@ class Index:
             try:
                 with conn.cursor() as cur:
                     cur.execute(sql, [self._RANK_WEIGHTS, fts, fts, limit, offset])
-                    return [
+                    results = [
                         {"embed_id": r[0], "platform": r[1], "page_url": r[2] or "",
                          "page_title": r[3] or "", "host": r[4] or "",
                          "thumbnail": r[5] or ""}
                         for r in cur.fetchall()
                     ]
             except Exception:
+                conn.rollback()
                 return []
+
+        if self._redis and results:
+            try:
+                self._redis.setex(cache_key, 300, json.dumps(results))
+            except Exception:
+                pass
+        return results
 
     def count_video_matches(self, query) -> int:
         """Count videos matching a query."""
         parsed = query if isinstance(query, ParsedQuery) else parse(query)
         fts = parsed.fts
+
+        cache_key = f"vidcount:{hashlib.md5(f'{fts}|{parsed.sites}'.encode()).hexdigest()}"
+        if self._redis:
+            cached = self._redis.get(cache_key)
+            if cached is not None:
+                try:
+                    return int(cached)
+                except Exception:
+                    pass
+
         if not fts:
             conn = self._get_conn()
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM videos")
-                return cur.fetchone()[0]
+                result = cur.fetchone()[0]
+            if self._redis:
+                try: self._redis.setex(cache_key, 300, result)
+                except: pass
+            return result
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
@@ -654,9 +707,14 @@ class Index:
                     "SELECT COUNT(*) FROM videos v WHERE v.tsv @@ websearch_to_tsquery('english', %s)",
                     [fts],
                 )
-                return cur.fetchone()[0]
+                result = cur.fetchone()[0]
         except Exception:
+            conn.rollback()
             return 0
+        if self._redis:
+            try: self._redis.setex(cache_key, 300, result)
+            except: pass
+        return result
 
     # ----- favicons --------------------------------------------------------
 
@@ -888,7 +946,7 @@ class Index:
                 + self._RICHNESS_WEIGHT * min(max((r[6] or 0) / 5000.0, 0), 1.0)
                 + self._RECENCY_WEIGHT * max(0.0, 1.0 - (now - (r[7] or 0)) / self._RECENCY_SPAN)
             )
-            snippet = desc[:220] if desc else body[:220]
+            snippet = self._make_snippet(desc, body, query_words)
             results.append(SearchResult(
                 url=r[1], title=r[2] or r[1], description=desc,
                 host=r[4] or "", snippet=snippet, score=score,
@@ -909,6 +967,61 @@ class Index:
             self._redis.setex(key, ttl, data)
         except Exception:
             pass
+
+    @staticmethod
+    def _make_snippet(desc: str, body: str, query_words: list[str],
+                      max_len: int = 220) -> str:
+        """Build a snippet with <mark> around query terms.
+
+        Prefer the description if it contains a query term; otherwise
+        extract a window from the body around the first match.
+        """
+        if not query_words:
+            return (desc or body)[:max_len]
+
+        def highlight(text: str) -> str:
+            """Wrap query-word matches in <mark> (case-insensitive)."""
+            result = text
+            for w in query_words:
+                if not w or len(w) < 2:
+                    continue
+                pattern = re.compile(
+                    r"\b(" + re.escape(w) + r"\w*)",
+                    re.IGNORECASE,
+                )
+                result = pattern.sub(r"<mark>\1</mark>", result)
+            return result
+
+        # Try description first — it's usually cleaner.
+        if desc:
+            desc_lower = desc.lower()
+            for w in query_words:
+                if w and len(w) >= 2 and w.lower() in desc_lower:
+                    return highlight(desc[:max_len])
+            # No match in desc, but it's still useful as a summary.
+            return desc[:max_len]
+
+        # Fall back to body: find a window around the first match.
+        if not body:
+            return ""
+        body_lower = body.lower()
+        best_pos = -1
+        for w in query_words:
+            if not w or len(w) < 2:
+                continue
+            pos = body_lower.find(w.lower())
+            if pos >= 0 and (best_pos < 0 or pos < best_pos):
+                best_pos = pos
+        if best_pos < 0:
+            return body[:max_len]
+        start = max(0, best_pos - 60)
+        end = min(len(body), start + max_len)
+        snippet = body[start:end]
+        if start > 0:
+            snippet = "…" + snippet
+        if end < len(body):
+            snippet = snippet + "…"
+        return highlight(snippet)
 
     def _row_to_result(self, r) -> SearchResult:
         desc = r[2] or ""

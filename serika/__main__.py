@@ -208,7 +208,7 @@ def cmd_images(args) -> int:
     index = Index(args.db)
     query = " ".join(args.query)
     total = index.count_image_matches(query, args.category)
-    results = idx.search_images(query, args.limit, 0, args.category)
+    results = index.search_images(query, args.limit, 0, args.category)
     print(f"\n{total:,} image(s) for: {query}\n")
     for i, r in enumerate(results, 1):
         print(f"\033[1m{i}. {(r.alt or r.page_title)[:90]}\033[0m")

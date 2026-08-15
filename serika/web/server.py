@@ -161,7 +161,7 @@ def _video_card(v, i: int) -> str:
             f"?rel=0&modestbranding=1&playsinline=1"
         )
         if not thumb:
-            thumb = f"https://img.youtube.com/vi/{embed_id}/hqdefault.jpg"
+            thumb = f"https://i.ytimg.com/vi/{embed_id}/hqdefault.jpg"
     elif platform == "vimeo":
         embed_url = f"https://player.vimeo.com/video/{embed_id}?dnt=1"
     else:
@@ -171,7 +171,7 @@ def _video_card(v, i: int) -> str:
     if thumb:
         thumb_block = (
             f'<img src="{html.escape(thumb, quote=True)}" alt="" '
-            f'referrerpolicy="no-referrer" loading="lazy" decoding="async" '
+            f'loading="lazy" decoding="async" '
             f'onerror="this.style.display=\'none\'"/>'
         )
 
@@ -193,7 +193,7 @@ def _knowledge_panel(card) -> str:
     if card.image:
         image_block = (
             f'<div class="kpanel-img"><img src="{html.escape(card.image, quote=True)}" '
-            f'alt="" referrerpolicy="no-referrer" loading="lazy" decoding="async" '
+            f'alt="" loading="lazy" decoding="async" '
             f'onerror="this.parentElement.style.display=\'none\'"/></div>'
         )
     facts = "".join(
@@ -204,7 +204,7 @@ def _knowledge_panel(card) -> str:
     gallery_block = ""
     if hasattr(card, "gallery") and card.gallery:
         thumbs = "".join(
-            f'<img src="{html.escape(g, quote=True)}" alt="" referrerpolicy="no-referrer" '
+            f'<img src="{html.escape(g, quote=True)}" alt="" '
             f'loading="lazy" decoding="async" '
             f'onerror="this.style.display=\'none\'"/>'
             for g in card.gallery
@@ -515,9 +515,9 @@ class Handler(BaseHTTPRequestHandler):
             f"> Self-hosted search engine with {pages:,} indexed pages, "
             f"{images:,} images, {videos:,} videos, and {sites:,} sites.\n\n"
             f"## Search\n"
-            f"- Web search: https://serika.dev/search?q=QUERY\n"
-            f"- Image search: https://serika.dev/search?q=QUERY&tab=images\n"
-            f"- Video search: https://serika.dev/search?q=QUERY&tab=videos\n\n"
+            f"- Web search: /search?q=QUERY\n"
+            f"- Image search: /search?q=QUERY&tab=images\n"
+            f"- Video search: /search?q=QUERY&tab=videos\n\n"
             f"## API (JSON)\n"
             f"- Web: GET /api/search?q=QUERY&limit=10&page=1\n"
             f"- Images: GET /api/images?q=QUERY&limit=20&page=1\n"
@@ -532,9 +532,9 @@ class Handler(BaseHTTPRequestHandler):
             f'- "exact phrase" — quoted phrase match\n\n'
             f"## Content\n"
             f"- All content is crawled respectfully following robots.txt\n"
-            f"- Pages are indexed with FTS5/BM25 ranking\n"
+            f"- Pages are indexed with PostgreSQL tsvector/GIN full-text search\n"
             f"- Images include alt text, dimensions, and source page\n"
-            f"- Videos are detected from embedded players (YouTube, Vimeo)\n"
+            f"- Videos are detected from embedded players (YouTube, Vimeo, etc.)\n"
         )
         self._send_bytes(llms.encode(), "text/plain", cache="public, max-age=3600")
 
@@ -545,6 +545,7 @@ class Handler(BaseHTTPRequestHandler):
             "searchbox": _searchbox(autofocus=True),
             "pages": f"{self.index.document_count():,}",
             "images": f"{self.index.image_count():,}",
+            "videos": f"{self.index.video_count():,}",
             "sites": f"{len(self.index.hosts()):,}",
         })
         return _shell("SerikaSearch", body)
@@ -749,8 +750,8 @@ class Handler(BaseHTTPRequestHandler):
         ctype, _ = mimetypes.guess_type(full)
         if not ctype:
             ctype = "application/octet-stream"
-        # CSS/JS: short cache so updates are picked up quickly.
-        self._send_bytes(data, ctype, cache="public, max-age=60")
+        # CSS/JS: long cache — version-busted via ?v= in the HTML.
+        self._send_bytes(data, ctype, cache="public, max-age=31536000, immutable")
 
     # ----- io helpers ------------------------------------------------------
 
@@ -764,7 +765,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", cache)
-            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(data)
