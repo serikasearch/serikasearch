@@ -23,6 +23,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlsplit
 
 import psycopg2
 import psycopg2.extensions
@@ -989,11 +990,50 @@ class Index:
         return url, depth, category
 
     def claim_batch(self, count: int = 10) -> list[tuple[str, int, str]]:
-        """Atomically claim multiple frontier URLs at once to reduce Redis
-        round-trips. Returns a list of (url, depth, category) tuples."""
+        """Claim multiple frontier URLs, spreading across hosts for diversity.
+
+        Instead of ZPOPMIN (which grabs the N lowest-scored URLs — often all
+        from the same host), this samples from a random window of the frontier
+        and deduplicates by host so each batch covers many sites at once.
+        """
         if not self._redis:
             return []
-        results = self._redis.zpopmin("frontier", count)
+        total = self._redis.zcard("frontier")
+        if total == 0:
+            return []
+        # Sample a random window of the sorted set. Taking `count * 8` entries
+        # from a random offset gives enough variety to pick one per host.
+        window = min(total, count * 8)
+        if total <= window:
+            # Frontier is small — just pop the first N.
+            results = self._redis.zpopmin("frontier", count)
+        else:
+            import random
+            start = random.randint(0, total - window)
+            candidates = self._redis.zrange("frontier", start, start + window - 1, withscores=True)
+            if not candidates:
+                return []
+            # Pick one URL per host, up to `count` total.
+            seen_hosts: set[str] = set()
+            chosen: list[tuple[str, float]] = []
+            for url, score in candidates:
+                host = urlsplit(url).netloc if isinstance(url, str) else ""
+                if host in seen_hosts:
+                    continue
+                seen_hosts.add(host)
+                chosen.append((url, score))
+                if len(chosen) >= count:
+                    break
+            if not chosen:
+                # All from the same host — just pop them.
+                results = self._redis.zpopmin("frontier", count)
+            else:
+                # Remove the chosen URLs from the frontier.
+                pipe = self._redis.pipeline()
+                for url, _ in chosen:
+                    pipe.zrem("frontier", url)
+                pipe.execute()
+                results = chosen
         if not results:
             return []
         out = []
