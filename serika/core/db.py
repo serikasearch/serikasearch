@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import psycopg2
+import psycopg2.extensions
 import psycopg2.pool
 import redis
 
@@ -130,6 +131,63 @@ CREATE TABLE IF NOT EXISTS favicons (
     content_type TEXT,
     fetched_at   DOUBLE PRECISION
 );
+
+-- Open Graph / Twitter card / JSON-LD scraped at crawl time. Kept in its own
+-- table so the hot `documents` rows stay narrow: a search touches documents on
+-- every query, but rich-card metadata is only read for the ten results shown.
+CREATE TABLE IF NOT EXISTS page_meta (
+    url            TEXT PRIMARY KEY,
+    host           TEXT,
+    site_name      TEXT,
+    og_type        TEXT,
+    image          TEXT,
+    image_width    INTEGER DEFAULT 0,
+    image_height   INTEGER DEFAULT 0,
+    image_alt      TEXT,
+    author         TEXT,
+    published      TEXT,
+    section        TEXT,
+    rating         DOUBLE PRECISION,
+    rating_count   INTEGER DEFAULT 0,
+    price          TEXT,
+    price_currency TEXT,
+    duration       TEXT,
+    headings       TEXT,
+    payload        TEXT,
+    updated_at     DOUBLE PRECISION
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_meta_host ON page_meta(host);
+
+-- Hosts that asked to be removed. The crawler checks this before every fetch
+-- and the search layer filters it out of results, so an opt-out takes effect
+-- immediately rather than at the next re-crawl.
+CREATE TABLE IF NOT EXISTS blocked_hosts (
+    host       TEXT PRIMARY KEY,
+    reason     TEXT,
+    created_at DOUBLE PRECISION
+);
+
+-- Removal requests submitted through /how-to-opt-out, kept so a human can
+-- verify site ownership before a block becomes permanent.
+CREATE TABLE IF NOT EXISTS optout_requests (
+    id         SERIAL PRIMARY KEY,
+    host       TEXT NOT NULL,
+    email      TEXT,
+    scope      TEXT,
+    note       TEXT,
+    status     TEXT DEFAULT 'received',
+    created_at DOUBLE PRECISION
+);
+
+CREATE INDEX IF NOT EXISTS idx_optout_host ON optout_requests(host);
+
+-- Supports prefix-matched autocomplete straight off the index. text_pattern_ops
+-- is what makes `lower(title) LIKE 'foo%'` an index scan instead of a seq scan.
+CREATE INDEX IF NOT EXISTS idx_documents_title_prefix
+    ON documents (lower(title) text_pattern_ops);
+
+CREATE INDEX IF NOT EXISTS idx_documents_fetched ON documents(fetched_at DESC);
 """
 
 
@@ -157,6 +215,39 @@ class ImageResult:
     width: int
     height: int
     score: float
+
+
+_SUGGESTION_TRIM = re.compile(
+    r"\s*[-–—|·:]\s*(?:home|official site|official website|welcome).*$", re.I
+)
+_SUGGESTION_TAIL = re.compile(r"\s*[-–—|]\s*[^-–—|]{1,40}$")
+
+# "Indexed within" windows offered by the results-page filter. These are crawl
+# times, not publication times: the crawler knows when it fetched a page, and
+# only a minority of pages state when they were written.
+FRESHNESS_WINDOWS = {
+    "day": 86400,
+    "week": 604800,
+    "month": 2629746,
+    "year": 31556952,
+}
+
+
+def _suggestion_phrase(title: str, prefix: str) -> str:
+    """Turn a page title into a short, search-shaped completion."""
+    text = re.sub(r"\s+", " ", (title or "")).strip()
+    if not text or len(text) > 120:
+        return ""
+    text = _SUGGESTION_TRIM.sub("", text)
+    # Drop a trailing " - Site Name" so completions read like queries.
+    if len(text) > 40:
+        text = _SUGGESTION_TAIL.sub("", text) or text
+    text = text.strip(" -–—|·:,")
+    if len(text) < len(prefix) or len(text) > 70:
+        return ""
+    if prefix not in text.lower():
+        return ""
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -187,8 +278,15 @@ class Index:
         if not db_url:
             raise ValueError("No database_url in config.json or DATABASE_URL env")
 
+        # Pool sizing matters more than it looks: a managed PostgreSQL often
+        # allows only ~100 connections in total, and this repository runs two
+        # containers (web + crawler) against the same database. Keeping the
+        # ceiling modest leaves room for both, for migrations, and for a psql
+        # session when something goes wrong.
+        min_conn = max(1, int(os.environ.get("DB_POOL_MIN", "2")))
+        max_conn = max(min_conn, int(os.environ.get("DB_POOL_MAX", "16")))
         self._pool = psycopg2.pool.ThreadedConnectionPool(
-            5, 60, db_url,
+            min_conn, max_conn, db_url,
         )
         self._local = threading.local()
         self._write_lock = threading.RLock()  # kept for compat but unused
@@ -202,11 +300,27 @@ class Index:
 
     # ----- connection management -------------------------------------------
 
+    def _borrow(self):
+        """Take a connection from the pool, waiting briefly if it's saturated.
+
+        A short spin beats failing the request outright: pool exhaustion under
+        a burst is normally over in milliseconds, because every web request
+        returns its connection as soon as it finishes rendering.
+        """
+        deadline = time.time() + 5.0
+        while True:
+            try:
+                return self._pool.getconn()
+            except psycopg2.pool.PoolError:
+                if time.time() >= deadline:
+                    raise
+                time.sleep(0.02)
+
     def _get_conn(self):
         """Get a connection from the pool (thread-local)."""
         conn = getattr(self._local, "conn", None)
         if conn is None or conn.closed:
-            conn = self._pool.getconn()
+            conn = self._borrow()
             conn.autocommit = False
             # Prefer GIN index scans over sequential scans for FTS queries.
             # On small tables PostgreSQL defaults to seq scan which is 100x
@@ -225,6 +339,38 @@ class Index:
             if commit:
                 conn.commit()
             self._pool.putconn(conn)
+        self._local.conn = None
+
+    def release(self) -> None:
+        """Hand this thread's connection back to the pool.
+
+        The web server runs every request on a fresh thread, so without this
+        each request would park a connection in a thread-local that dies with
+        the thread — the pool would hand out its last connection and then
+        PostgreSQL would start refusing clients. Long-lived workers (the
+        crawler) simply never call it and keep their connection for the
+        duration.
+
+        Any open transaction is rolled back first: a connection returned
+        mid-transaction would hold locks and poison the next borrower.
+        """
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            return
+        try:
+            if not conn.closed:
+                if conn.get_transaction_status() != \
+                        psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+                    conn.rollback()
+                self._pool.putconn(conn)
+        except Exception:
+            # A broken connection must not be recycled — drop it so the pool
+            # opens a fresh one next time.
+            try:
+                self._pool.putconn(conn, close=True)
+            except Exception:
+                pass
+        finally:
             self._local.conn = None
 
     @property
@@ -886,16 +1032,24 @@ class Index:
         likes = " OR ".join("d.host ILIKE %s" for _ in sites)
         return f"{prefix} ({likes})", [f"%{s}%" for s in sites]
 
+    def _freshness_clause(self, freshness: str) -> tuple[str, list]:
+        """`AND d.fetched_at > …` for the results-page "indexed within" filter."""
+        window = FRESHNESS_WINDOWS.get((freshness or "").lower())
+        if not window:
+            return "", []
+        return " AND d.fetched_at > %s", [time.time() - window]
+
     def search(
-        self, query, limit: int = 10, offset: int = 0
+        self, query, limit: int = 10, offset: int = 0, freshness: str = ""
     ) -> list[SearchResult]:
         """Full-text web search with Google-style operators and SEO ranking."""
         parsed = query if isinstance(query, ParsedQuery) else parse(query)
         fts = parsed.fts
         site_sql, site_params = self._site_clause(parsed.sites)
+        fresh_sql, fresh_params = self._freshness_clause(freshness)
 
         # Check Redis cache first.
-        cache_key = f"search:{hashlib.md5(f'{fts}|{parsed.sites}|{parsed.intitle}|{parsed.inurl}|{limit}|{offset}'.encode()).hexdigest()}"
+        cache_key = f"search:{hashlib.md5(f'{fts}|{parsed.sites}|{parsed.intitle}|{parsed.inurl}|{limit}|{offset}|{freshness}'.encode()).hexdigest()}"
         if self._redis:
             cached = self._redis.get(cache_key)
             if cached:
@@ -911,11 +1065,11 @@ class Index:
             sql = (
                 "SELECT d.url, d.title, d.description, d.host, "
                 "'' AS snippet, 0.0 AS score, d.word_count, d.fetched_at "
-                "FROM documents d WHERE 1=1" + site_sql +
+                "FROM documents d WHERE 1=1" + site_sql + fresh_sql +
                 " ORDER BY d.word_count DESC NULLS LAST, d.fetched_at DESC "
                 "LIMIT %s OFFSET %s"
             )
-            params = site_params + [limit, offset]
+            params = site_params + fresh_params + [limit, offset]
             conn = self._get_conn()
             with conn.cursor() as cur:
                 cur.execute(sql, params)
@@ -958,7 +1112,7 @@ class Index:
             f" CASE WHEN ({url_ilike}) THEN 1 ELSE 0 END AS has_url"
             " FROM documents d"
             " WHERE d.tsv @@ websearch_to_tsquery('english', %s)"
-            + site_sql + intitle_sql + inurl_sql +
+            + site_sql + intitle_sql + inurl_sql + fresh_sql +
             ") sub"
             f" ORDER BY (sub.rank"
             f"  + {self._TITLE_BOOST} * sub.has_title"
@@ -972,6 +1126,7 @@ class Index:
                         + title_params + url_params
                         + [fts]
                         + site_params + intitle_params + inurl_params
+                        + fresh_params
                         + [now, limit, offset])
         conn = self._get_conn()
         try:
@@ -1091,15 +1246,17 @@ class Index:
             host=r[3] or "", snippet=snippet, score=score,
         )
 
-    def count_matches(self, query, sites: list[str] | None = None) -> int:
+    def count_matches(self, query, sites: list[str] | None = None,
+                      freshness: str = "") -> int:
         """Count documents matching a query (and optional site filter)."""
         parsed = query if isinstance(query, ParsedQuery) else parse(query)
         fts = parsed.fts
         all_sites = list(sites or []) + list(parsed.sites)
         site_sql, site_params = self._site_clause(all_sites)
+        fresh_sql, fresh_params = self._freshness_clause(freshness)
 
         # Check Redis cache.
-        cache_key = f"count:{hashlib.md5(f'{fts}|{all_sites}|{parsed.intitle}|{parsed.inurl}'.encode()).hexdigest()}"
+        cache_key = f"count:{hashlib.md5(f'{fts}|{all_sites}|{parsed.intitle}|{parsed.inurl}|{freshness}'.encode()).hexdigest()}"
         if self._redis:
             cached = self._redis.get(cache_key)
             if cached is not None:
@@ -1111,10 +1268,11 @@ class Index:
         if not fts:
             if not all_sites:
                 return 0
-            sql = "SELECT COUNT(*) FROM documents d WHERE 1=1" + site_sql
+            sql = ("SELECT COUNT(*) FROM documents d WHERE 1=1"
+                   + site_sql + fresh_sql)
             conn = self._get_conn()
             with conn.cursor() as cur:
-                cur.execute(sql, site_params)
+                cur.execute(sql, site_params + fresh_params)
                 result = cur.fetchone()[0]
             if self._redis:
                 try: self._redis.setex(cache_key, 300, result)
@@ -1135,8 +1293,9 @@ class Index:
 
         sql = ("SELECT COUNT(*) FROM documents d "
                "WHERE d.tsv @@ websearch_to_tsquery('english', %s)"
-               + site_sql + intitle_sql + inurl_sql)
-        params = [fts] + site_params + intitle_params + inurl_params
+               + site_sql + intitle_sql + inurl_sql + fresh_sql)
+        params = ([fts] + site_params + intitle_params + inurl_params
+                  + fresh_params)
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
@@ -1148,6 +1307,351 @@ class Index:
             try: self._redis.setex(cache_key, 300, result)
             except: pass
         return result
+
+    # ----- rich page metadata ----------------------------------------------
+
+    def set_page_meta(self, url: str, host: str, meta: dict,
+                      headings: list[str] | None = None) -> None:
+        """Store the Open Graph / JSON-LD metadata scraped for a page."""
+        if not meta and not headings:
+            return
+        schema = meta.get("schema") or {}
+        rating = meta.get("rating", schema.get("rating"))
+        try:
+            rating = float(rating) if rating is not None else None
+        except (TypeError, ValueError):
+            rating = None
+        try:
+            rating_count = int(meta.get("rating_count",
+                                        schema.get("rating_count", 0)) or 0)
+        except (TypeError, ValueError):
+            rating_count = 0
+
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO page_meta
+                       (url, host, site_name, og_type, image, image_width,
+                        image_height, image_alt, author, published, section,
+                        rating, rating_count, price, price_currency, duration,
+                        headings, payload, updated_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                               %s,%s,%s,%s)
+                       ON CONFLICT (url) DO UPDATE SET
+                         host=EXCLUDED.host, site_name=EXCLUDED.site_name,
+                         og_type=EXCLUDED.og_type, image=EXCLUDED.image,
+                         image_width=EXCLUDED.image_width,
+                         image_height=EXCLUDED.image_height,
+                         image_alt=EXCLUDED.image_alt, author=EXCLUDED.author,
+                         published=EXCLUDED.published, section=EXCLUDED.section,
+                         rating=EXCLUDED.rating,
+                         rating_count=EXCLUDED.rating_count,
+                         price=EXCLUDED.price,
+                         price_currency=EXCLUDED.price_currency,
+                         duration=EXCLUDED.duration,
+                         headings=EXCLUDED.headings, payload=EXCLUDED.payload,
+                         updated_at=EXCLUDED.updated_at""",
+                    (url[:2000], host, (meta.get("site_name") or "")[:200],
+                     (meta.get("type") or "")[:60], (meta.get("image") or "")[:1000],
+                     int(meta.get("image_width") or 0),
+                     int(meta.get("image_height") or 0),
+                     (meta.get("image_alt") or "")[:300],
+                     (meta.get("author") or "")[:200],
+                     (meta.get("published") or "")[:40],
+                     (meta.get("section") or "")[:120],
+                     rating, rating_count,
+                     (str(meta.get("price") or ""))[:32],
+                     (meta.get("price_currency") or "")[:8],
+                     (str(meta.get("duration") or ""))[:32],
+                     json.dumps((headings or [])[:8]),
+                     json.dumps(meta)[:16000], time.time()),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    def page_meta(self, urls: list[str]) -> dict[str, dict]:
+        """Fetch stored metadata for a page of results, in one round trip."""
+        if not urls:
+            return {}
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT url, site_name, og_type, image, image_width,
+                              image_height, image_alt, author, published,
+                              section, rating, rating_count, price,
+                              price_currency, duration, headings
+                       FROM page_meta WHERE url = ANY(%s)""",
+                    (list(urls),),
+                )
+                rows = cur.fetchall()
+        except Exception:
+            conn.rollback()
+            return {}
+
+        out: dict[str, dict] = {}
+        for r in rows:
+            try:
+                headings = json.loads(r[15] or "[]")
+            except ValueError:
+                headings = []
+            out[r[0]] = {
+                "site_name": r[1] or "", "type": r[2] or "",
+                "image": r[3] or "", "image_width": r[4] or 0,
+                "image_height": r[5] or 0, "image_alt": r[6] or "",
+                "author": r[7] or "", "published": r[8] or "",
+                "section": r[9] or "", "rating": r[10],
+                "rating_count": r[11] or 0, "price": r[12] or "",
+                "price_currency": r[13] or "", "duration": r[14] or "",
+                "headings": headings,
+            }
+        return out
+
+    def page_meta_count(self) -> int:
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM page_meta")
+                return cur.fetchone()[0]
+        except Exception:
+            conn.rollback()
+            return 0
+
+    # ----- opt-out / removals ----------------------------------------------
+
+    def blocked_hosts(self) -> set[str]:
+        """Hosts that opted out. Cached in Redis — this is read on every crawl
+        decision and every search, so it must not be a database round trip."""
+        if self._redis:
+            cached = self._redis.get("blocked:hosts")
+            if cached is not None:
+                try:
+                    return set(json.loads(cached))
+                except ValueError:
+                    pass
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT host FROM blocked_hosts")
+                hosts = {r[0] for r in cur.fetchall()}
+        except Exception:
+            conn.rollback()
+            return set()
+        if self._redis:
+            try:
+                self._redis.setex("blocked:hosts", 300, json.dumps(sorted(hosts)))
+            except Exception:
+                pass
+        return hosts
+
+    def is_blocked(self, host: str) -> bool:
+        host = (host or "").lower().lstrip(".")
+        if not host:
+            return False
+        blocked = self.blocked_hosts()
+        if host in blocked:
+            return True
+        # A block on example.com also covers www.example.com and sub.example.com.
+        parts = host.split(".")
+        return any(".".join(parts[i:]) in blocked for i in range(1, len(parts) - 1))
+
+    def block_host(self, host: str, reason: str = "") -> None:
+        host = (host or "").lower().strip().lstrip(".")
+        if not host:
+            return
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO blocked_hosts (host, reason, created_at)
+                       VALUES (%s, %s, %s)
+                       ON CONFLICT (host) DO UPDATE SET reason=EXCLUDED.reason""",
+                    (host, reason[:500], time.time()),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        if self._redis:
+            try:
+                self._redis.delete("blocked:hosts")
+            except Exception:
+                pass
+
+    def purge_host(self, host: str) -> int:
+        """Delete everything indexed for a host. Used when an opt-out is
+        verified — the point of a removal request is that the data goes."""
+        host = (host or "").lower().strip()
+        if not host:
+            return 0
+        pattern = f"%{host}"
+        removed = 0
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                for table in ("documents", "images", "videos"):
+                    cur.execute(
+                        f"DELETE FROM {table} WHERE host = %s OR host LIKE %s",
+                        (host, pattern),
+                    )
+                    removed += cur.rowcount or 0
+                cur.execute(
+                    "DELETE FROM page_meta WHERE host = %s OR host LIKE %s",
+                    (host, pattern),
+                )
+                cur.execute("DELETE FROM favicons WHERE host = %s", (host,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        return removed
+
+    def add_optout_request(self, host: str, email: str, scope: str,
+                           note: str) -> int:
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO optout_requests
+                       (host, email, scope, note, status, created_at)
+                       VALUES (%s, %s, %s, %s, 'received', %s) RETURNING id""",
+                    (host[:255], email[:255], scope[:40], note[:2000],
+                     time.time()),
+                )
+                request_id = cur.fetchone()[0]
+            conn.commit()
+            return request_id
+        except Exception:
+            conn.rollback()
+            raise
+
+    # ----- autocomplete ----------------------------------------------------
+
+    def suggest(self, prefix: str, limit: int = 8) -> list[str]:
+        """Prefix-matched completions drawn from indexed page titles.
+
+        Deliberately *not* built from what people search for: SerikaSearch
+        keeps no query log, so suggestions come from the corpus instead.
+        """
+        prefix = re.sub(r"\s+", " ", (prefix or "").strip().lower())
+        if len(prefix) < 2 or len(prefix) > 60:
+            return []
+
+        cache_key = f"sugg:{prefix}"
+        if self._redis:
+            cached = self._redis.get(cache_key)
+            if cached is not None:
+                try:
+                    return json.loads(cached)
+                except ValueError:
+                    pass
+
+        conn = self._get_conn()
+        rows: list[tuple[str, int]] = []
+        try:
+            with conn.cursor() as cur:
+                # Titles that literally start with what's been typed.
+                cur.execute(
+                    """SELECT title, word_count FROM documents
+                       WHERE lower(title) LIKE %s AND title <> ''
+                       ORDER BY word_count DESC NULLS LAST LIMIT 40""",
+                    (prefix + "%",),
+                )
+                rows = list(cur.fetchall())
+                if len(rows) < limit:
+                    # Then titles that contain the phrase anywhere.
+                    cur.execute(
+                        """SELECT title, word_count FROM documents
+                           WHERE lower(title) LIKE %s AND title <> ''
+                           ORDER BY word_count DESC NULLS LAST LIMIT 40""",
+                        ("% " + prefix + "%",),
+                    )
+                    rows += list(cur.fetchall())
+        except Exception:
+            conn.rollback()
+            return []
+
+        suggestions: list[str] = []
+        seen: set[str] = set()
+        for title, _ in rows:
+            phrase = _suggestion_phrase(title, prefix)
+            if not phrase:
+                continue
+            key = phrase.lower()
+            if key in seen or key == prefix:
+                continue
+            seen.add(key)
+            suggestions.append(phrase)
+            if len(suggestions) >= limit:
+                break
+
+        if self._redis:
+            try:
+                self._redis.setex(cache_key, 900, json.dumps(suggestions))
+            except Exception:
+                pass
+        return suggestions
+
+    def vocabulary(self, limit: int = 20000) -> dict[str, int]:
+        """Word frequencies from the corpus, for spelling correction."""
+        if self._redis:
+            cached = self._redis.get("vocab:v1")
+            if cached:
+                try:
+                    return json.loads(cached)
+                except ValueError:
+                    pass
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT title FROM documents
+                       WHERE title <> '' ORDER BY word_count DESC NULLS LAST
+                       LIMIT 8000"""
+                )
+                titles = [r[0] for r in cur.fetchall()]
+        except Exception:
+            conn.rollback()
+            return {}
+
+        counts: dict[str, int] = {}
+        for title in titles:
+            for word in re.findall(r"[a-z]{3,20}", title.lower()):
+                counts[word] = counts.get(word, 0) + 1
+        if len(counts) > limit:
+            counts = dict(sorted(counts.items(), key=lambda kv: -kv[1])[:limit])
+        if self._redis:
+            try:
+                self._redis.setex("vocab:v1", 3600, json.dumps(counts))
+            except Exception:
+                pass
+        return counts
+
+    def top_hosts(self, limit: int = 12) -> list[tuple[str, int]]:
+        return self.hosts()[:limit]
+
+    def recent_pages(self, limit: int = 12) -> list[SearchResult]:
+        """The most recently crawled pages — used on the home page."""
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT url, title, description, host FROM documents
+                       WHERE title <> '' AND word_count > 120
+                       ORDER BY fetched_at DESC NULLS LAST LIMIT %s""",
+                    (limit,),
+                )
+                return [
+                    SearchResult(url=r[0], title=r[1] or r[0],
+                                 description=r[2] or "", host=r[3] or "",
+                                 snippet=(r[2] or "")[:160], score=0.0)
+                    for r in cur.fetchall()
+                ]
+        except Exception:
+            conn.rollback()
+            return []
 
     # ----- cleanup ---------------------------------------------------------
 

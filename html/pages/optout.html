@@ -1,0 +1,58 @@
+{{ header|safe }}
+<div class="doc">
+  <nav class="doc-toc" aria-label="On this page">
+    <h2>On this page</h2>
+    <ul>{{ toc|safe }}</ul>
+  </nav>
+  <article class="doc-body" id="main">
+    <span class="doc-kicker">{{ kicker }}</span>
+    <h1 class="doc-title">{{ title }}</h1>
+    <p class="doc-summary">{{ summary }}</p>
+    <p class="doc-updated">Last updated {{ updated }}</p>
+    {{ sections|safe }}
+
+    <section class="doc-section" id="removal-form">
+      <h2>Removal request form</h2>
+      {{ notice|safe }}
+      <form class="form-grid" method="post" action="/how-to-opt-out">
+        <div class="field">
+          <label for="of-host">Domain</label>
+          <input type="text" id="of-host" name="host" required maxlength="255"
+                 placeholder="example.com" value="{{ host_value }}"/>
+          <span class="hint">The domain you control. Enter it without
+                <code>https://</code>. A request for <code>example.com</code>
+                covers its subdomains.</span>
+        </div>
+        <div class="field">
+          <label for="of-email">Contact email</label>
+          <input type="email" id="of-email" name="email" required maxlength="255"
+                 placeholder="you@example.com" value="{{ email_value }}"/>
+          <span class="hint">Used only to verify the request and tell you when
+                it is done. Not added to any list.</span>
+        </div>
+        <div class="field">
+          <label for="of-scope">What should be removed</label>
+          <select id="of-scope" name="scope">
+            <option value="all">Everything from this domain</option>
+            <option value="pages">Specific pages only</option>
+            <option value="images">Images only</option>
+            <option value="crawl">Stop crawling, keep existing entries</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="of-note">Details</label>
+          <textarea id="of-note" name="note" maxlength="2000"
+                    placeholder="Specific URLs, and anything else we should know."></textarea>
+          <span class="hint">If you chose “specific pages”, list the URLs here,
+                one per line.</span>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Send request</button>
+          <span class="hint">Reviewed by a person. Ownership is verified before
+                anything is deleted.</span>
+        </div>
+      </form>
+    </section>
+  </article>
+</div>
+{% include "components/footer.html" %}

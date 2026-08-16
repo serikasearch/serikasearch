@@ -1,0 +1,14 @@
+{{ header|safe }}
+<main class="tools-page" id="main">
+  <div class="tools-head">
+    <h1>Index statistics</h1>
+    <p>What serikacrawler has covered so far. These are live counts, not a cached page.</p>
+  </div>
+  <div class="tool-grid" style="margin-bottom:var(--sp-7)">{{ cards|safe }}</div>
+  <div class="tool-group">
+    <h2>Most-indexed sites</h2>
+    <div class="bang-grid">{{ hosts|safe }}</div>
+  </div>
+  {{ categories|safe }}
+</main>
+{% include "components/footer.html" %}

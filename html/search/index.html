@@ -1,9 +1,16 @@
 {{ header|safe }}
 <div class="serp {{ serp_mod }}">
-  <main class="serp-main">
-    <p class="result-meta">{{ meta|safe }}</p>
+  <main class="serp-main" id="main">
+    <h1 class="visually-hidden">{{ h1 }}</h1>
+    <div class="serp-head">
+      <p class="result-meta">{{ meta|safe }}</p>
+      {{ filters|safe }}
+    </div>
+    {{ answer|safe }}
+    {{ did_you_mean|safe }}
     <div class="result-list">{{ results|safe }}</div>
     {{ pager|safe }}
+    {{ related|safe }}
   </main>
   <div class="serp-aside">{{ knowledge|safe }}</div>
 </div>

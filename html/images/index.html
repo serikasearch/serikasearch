@@ -1,10 +1,16 @@
 {{ header|safe }}
-<main class="img-results">
+<main class="img-page" id="main">
+  <h1 class="visually-hidden">{{ h1 }}</h1>
   <div class="img-toolbar">
     <p class="result-meta">{{ meta|safe }}</p>
     <div class="img-filters">{{ filters|safe }}</div>
   </div>
-  <div class="image-grid">{{ cards|safe }}</div>
+  <div class="image-grid" id="imageGrid" data-query="{{ query }}" data-page="{{ page }}"
+       data-size="{{ size }}">{{ cards|safe }}</div>
+  <div class="img-loading" id="imgLoading" hidden>
+    <span class="spinner" aria-hidden="true"></span> Loading more images…
+  </div>
+  <div class="img-sentinel" id="imgSentinel"></div>
   {{ pager|safe }}
 </main>
 {% include "components/lightbox.html" %}

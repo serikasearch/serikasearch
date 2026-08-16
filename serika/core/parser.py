@@ -11,12 +11,16 @@ from html.parser import HTMLParser
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urldefrag
 
+from .unfurl import extract_meta
+
 # Tags whose text content we never want in the index.
 _SKIP_CONTENT = {"script", "style", "noscript", "template", "svg", "head"}
 _BLOCK_TAGS = {
     "p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
     "section", "article", "header", "footer", "table", "ul", "ol",
 }
+# Headings become the "jump to section" links on rich result cards.
+_HEADING_TAGS = {"h1", "h2", "h3"}
 
 # Junk we never want in image search: tracking pixels, spacers, sprites,
 # UI chrome buttons. We DON'T block "logo" or "icon" here — users may
@@ -67,6 +71,10 @@ class ParsedPage:
     favicon: str = ""
     noindex: bool = False
     nofollow: bool = False
+    # Open Graph / Twitter card / JSON-LD, as returned by
+    # :func:`serika.core.unfurl.extract_meta`. Drives rich result cards.
+    meta: dict = field(default_factory=dict)
+    headings: list[str] = field(default_factory=list)
 
 
 def _int_attr(value: str | None) -> int:
@@ -84,6 +92,8 @@ class _Extractor(HTMLParser):
         self._skip_depth = 0
         self._in_title = False
         self._chunks: list[str] = []
+        self._heading_depth = 0
+        self._heading_chunks: list[str] = []
 
     # ----- tags ------------------------------------------------------------
 
@@ -114,6 +124,9 @@ class _Extractor(HTMLParser):
         elif tag == "video":
             self._add_video_tag(attrs_d)
         elif tag in _BLOCK_TAGS:
+            if tag in _HEADING_TAGS and len(self.page.headings) < 12:
+                self._heading_depth += 1
+                self._heading_chunks = []
             self._chunks.append(" ")
 
     def handle_endtag(self, tag):
@@ -122,6 +135,12 @@ class _Extractor(HTMLParser):
         elif tag == "title":
             self._in_title = False
         elif tag in _BLOCK_TAGS:
+            if tag in _HEADING_TAGS and self._heading_depth > 0:
+                self._heading_depth -= 1
+                heading = re.sub(r"\s+", " ", "".join(self._heading_chunks)).strip()
+                if 2 <= len(heading) <= 120 and len(self.page.headings) < 12:
+                    self.page.headings.append(heading)
+                self._heading_chunks = []
             self._chunks.append(" ")
 
     def handle_data(self, data):
@@ -132,6 +151,8 @@ class _Extractor(HTMLParser):
             return
         if self._skip_depth > 0:
             return
+        if self._heading_depth > 0:
+            self._heading_chunks.append(data)
         self._chunks.append(data)
 
     # ----- helpers ---------------------------------------------------------
@@ -347,10 +368,25 @@ def _dedupe(items: list[str]) -> list[str]:
     return out
 
 
-def parse_html(html: str, base_url: str) -> ParsedPage:
+def parse_html(html: str, base_url: str, want_meta: bool = True) -> ParsedPage:
     extractor = _Extractor(base_url)
     try:
         extractor.feed(html)
     except Exception:
         pass
-    return extractor.finalize()
+    page = extractor.finalize()
+
+    if want_meta:
+        # Structured metadata (Open Graph, Twitter cards, JSON-LD) is parsed
+        # separately from the raw markup — it lives in attributes and <script>
+        # bodies that the text extractor deliberately throws away.
+        try:
+            page.meta = extract_meta(html, base_url)
+        except Exception:
+            page.meta = {}
+        # A publisher's own og:description beats our first-300-characters guess.
+        og_description = page.meta.get("description", "")
+        if og_description and len(og_description) > 40:
+            page.description = og_description
+
+    return page

@@ -5,6 +5,8 @@
   python -m serika loop <seedfile> ...        run forever, refilling seeds
   python -m serika search <query>             search from the terminal
   python -m serika images <query>             image search from the terminal
+  python -m serika enrich                     backfill Open Graph metadata
+  python -m serika block <host> --purge       honour an opt-out request
   python -m serika stats                      index statistics
 """
 
@@ -15,11 +17,13 @@ import glob
 import os
 import re
 import sys
+import threading
 import time
 
 from . import __version__
 from .core.db import Index
 from .core.crawler import Crawler, backfill_favicons
+from .core.unfurl import unfurl
 from .web.server import serve
 
 
@@ -192,8 +196,8 @@ def cmd_loop(args) -> int:
 def cmd_search(args) -> int:
     index = Index(args.db)
     query = " ".join(args.query)
-    total = index.count_matches(query, args.category)
-    results = index.search(query, args.limit, 0, args.category)
+    total = index.count_matches(query)
+    results = index.search(query, args.limit, 0)
     print(f"\n{total:,} result(s) for: {query}\n")
     for i, r in enumerate(results, 1):
         snippet = r.snippet.replace("<mark>", "\033[35m").replace("</mark>", "\033[0m")
@@ -207,13 +211,14 @@ def cmd_search(args) -> int:
 def cmd_images(args) -> int:
     index = Index(args.db)
     query = " ".join(args.query)
-    total = index.count_image_matches(query, args.category)
-    results = index.search_images(query, args.limit, 0, args.category)
+    total = index.count_image_matches(query)
+    results = index.search_images(query, args.limit, 0)
     print(f"\n{total:,} image(s) for: {query}\n")
     for i, r in enumerate(results, 1):
         print(f"\033[1m{i}. {(r.alt or r.page_title)[:90]}\033[0m")
         print(f"   \033[35m{r.src}\033[0m")
         print(f"   \033[90mon {r.page_url}\033[0m\n")
+    index.release()
     index.close()
     return 0
 
@@ -223,6 +228,79 @@ def cmd_icons(args) -> int:
     print("Fetching favicons for indexed hosts…", file=sys.stderr)
     n = backfill_favicons(index, timeout=args.timeout)
     print(f"Fetched {n} new favicon(s); {index.favicon_count()} cached in total.")
+    index.close()
+    return 0
+
+
+def cmd_enrich(args) -> int:
+    """Backfill Open Graph / JSON-LD metadata for pages crawled before rich
+    result cards existed. Re-fetches each page's <head> only."""
+    import concurrent.futures
+
+    index = Index(args.db)
+    conn = index._get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT d.url, d.host FROM documents d
+               LEFT JOIN page_meta m ON m.url = d.url
+               WHERE m.url IS NULL AND d.title <> ''
+               ORDER BY d.word_count DESC NULLS LAST LIMIT %s""",
+            (args.limit,),
+        )
+        targets = cur.fetchall()
+    index.release()
+
+    if not targets:
+        print("Every indexed page already has metadata.")
+        index.close()
+        return 0
+
+    print(f"Enriching {len(targets):,} page(s) with {args.workers} workers…",
+          file=sys.stderr)
+    done = threading.Lock()
+    counts = {"ok": 0, "fail": 0}
+
+    def enrich(row) -> None:
+        url, host = row
+        try:
+            meta = unfurl(url, want_oembed=False)
+        except Exception:
+            with done:
+                counts["fail"] += 1
+            return
+        try:
+            index.set_page_meta(url, host, meta, meta.get("headings"))
+            with done:
+                counts["ok"] += 1
+                total = counts["ok"]
+            if args.verbose and total % 25 == 0:
+                print(f"  … {total:,} enriched", file=sys.stderr, flush=True)
+        except Exception:
+            with done:
+                counts["fail"] += 1
+        finally:
+            index.release()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+        list(pool.map(enrich, targets))
+
+    print(f"Enriched {counts['ok']:,} page(s); {counts['fail']:,} failed. "
+          f"{index.page_meta_count():,} pages now have rich metadata.")
+    index.close()
+    return 0
+
+
+def cmd_block(args) -> int:
+    """Honour an opt-out: stop crawling a host and delete what's indexed."""
+    index = Index(args.db)
+    host = args.host.lower().strip().lstrip(".")
+    index.block_host(host, args.reason)
+    removed = 0
+    if args.purge:
+        removed = index.purge_host(host)
+    print(f"Blocked {host} from future crawls."
+          + (f" Removed {removed:,} indexed row(s)." if args.purge else
+             " Existing entries kept — pass --purge to delete them."))
     index.close()
     return 0
 
@@ -304,20 +382,35 @@ def build_parser() -> argparse.ArgumentParser:
     q = sub.add_parser("search", help="web search from the terminal")
     q.add_argument("query", nargs="+")
     q.add_argument("--limit", type=int, default=10)
-    q.add_argument("--category", default="")
     q.set_defaults(func=cmd_search)
 
     # images
     im = sub.add_parser("images", help="image search from the terminal")
     im.add_argument("query", nargs="+")
     im.add_argument("--limit", type=int, default=10)
-    im.add_argument("--category", default="")
     im.set_defaults(func=cmd_images)
 
     # icons
     ic = sub.add_parser("icons", help="backfill favicons for indexed hosts")
     ic.add_argument("--timeout", type=float, default=10.0)
     ic.set_defaults(func=cmd_icons)
+
+    # enrich
+    en = sub.add_parser("enrich",
+                        help="backfill Open Graph metadata for indexed pages")
+    en.add_argument("--limit", type=int, default=2000,
+                    help="how many pages to enrich in this run")
+    en.add_argument("--workers", type=int, default=12, help="parallel fetches")
+    en.add_argument("--verbose", action="store_true")
+    en.set_defaults(func=cmd_enrich)
+
+    # block
+    bl = sub.add_parser("block", help="block a host and optionally purge it")
+    bl.add_argument("host", help="domain to block, e.g. example.com")
+    bl.add_argument("--reason", default="opt-out request")
+    bl.add_argument("--purge", action="store_true",
+                    help="also delete everything already indexed for the host")
+    bl.set_defaults(func=cmd_block)
 
     # stats
     st = sub.add_parser("stats", help="show index statistics")

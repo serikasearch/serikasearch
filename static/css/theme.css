@@ -1,45 +1,70 @@
 /* SerikaSearch — design tokens.
-   AMOLED true-black canvas with a restrained purple accent. Every colour,
-   spacing unit, radius and shadow is defined once here so the rest of the UI
-   stays consistent and trivially re-themeable. */
+
+   AMOLED true-black canvas with a single restrained purple accent. Every
+   colour, space, radius, shadow and timing in the UI resolves to a token
+   defined here, so the whole interface can be retuned from one file and
+   nothing drifts.
+
+   The scale is fluid: type and gutters interpolate with the viewport via
+   clamp(), which is what lets one set of rules serve a 320px phone and a
+   2560px desktop without a pile of breakpoint overrides. */
 
 :root {
-  /* canvas — true black, with faint elevation tiers that never leave AMOLED */
-  --bg:        #000000;
-  --bg-1:      #08080d;
-  --bg-2:      #0e0e16;
-  --bg-3:      #14141f;
-  --bg-hover:  #16161f;
+  /* ---- canvas ------------------------------------------------------------
+     True black stays true black. The elevation tiers are near-black greys
+     that read as depth without lighting up OLED pixels. */
+  --bg:          #000000;
+  --bg-1:        #08080d;
+  --bg-2:        #0e0e16;
+  --bg-3:        #14141f;
+  --bg-4:        #1b1b28;
+  --bg-hover:    #16161f;
+  --bg-glass:    rgba(6, 6, 10, 0.82);
 
-  /* text — cool neutrals, three clear weights of contrast */
-  --text-1:    #ececf4;   /* primary */
-  --text-2:    #a7a7bd;   /* secondary */
-  --text-3:    #6b6b85;   /* muted / metadata */
+  /* ---- text --------------------------------------------------------------
+     Three weights of contrast, all ≥ 4.5:1 on --bg for body sizes. */
+  --text-1:      #ececf4;
+  --text-2:      #a7a7bd;
+  --text-3:      #8888a0;   /* metadata — lifted from #6b6b85 to clear AA */
+  --text-4:      #61617a;   /* decorative only, never load-bearing text */
 
-  /* accent — a single purple, with dim/line variants */
-  --accent:    #a274ff;
-  --accent-2:  #c4a7ff;   /* hover / focus */
-  --accent-3:  #7d52e0;   /* pressed */
-  --accent-dim:   rgba(162, 116, 255, 0.14);
-  --accent-line:  rgba(162, 116, 255, 0.40);
+  /* ---- accent ------------------------------------------------------------ */
+  --accent:      #a274ff;
+  --accent-2:    #c4a7ff;   /* hover / links on dark */
+  --accent-3:    #7d52e0;   /* pressed */
+  --accent-4:    #d9c6ff;   /* high-contrast text on accent-tinted fills */
+  --accent-dim:  rgba(162, 116, 255, 0.14);
+  --accent-dim-2: rgba(162, 116, 255, 0.08);
+  --accent-line: rgba(162, 116, 255, 0.40);
+  --accent-glow: rgba(162, 116, 255, 0.28);
+
+  /* ---- semantic ---------------------------------------------------------- */
+  --good:        #5fd39a;
+  --warn:        #f3c969;
+  --bad:         #ff7a8a;
+  --info:        #7fb6ff;
 
   /* search-term highlight */
-  --mark-bg:   rgba(162, 116, 255, 0.28);
-  --mark-text: #ecd9ff;
+  --mark-bg:     rgba(162, 116, 255, 0.26);
+  --mark-text:   #ecd9ff;
 
-  /* lines & surfaces */
-  --border:    rgba(255, 255, 255, 0.07);
-  --border-2:  rgba(255, 255, 255, 0.12);
-  --surface:   rgba(255, 255, 255, 0.025);
+  /* ---- lines & surfaces -------------------------------------------------- */
+  --border:      rgba(255, 255, 255, 0.07);
+  --border-2:    rgba(255, 255, 255, 0.13);
+  --border-3:    rgba(255, 255, 255, 0.20);
+  --surface:     rgba(255, 255, 255, 0.025);
+  --surface-2:   rgba(255, 255, 255, 0.045);
 
-  /* radii */
+  /* ---- radii ------------------------------------------------------------- */
+  --r-xs: 6px;
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 16px;
   --r-xl: 22px;
+  --r-2xl: 28px;
   --r-pill: 999px;
 
-  /* spacing scale */
+  /* ---- spacing ----------------------------------------------------------- */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -48,32 +73,87 @@
   --sp-6: 32px;
   --sp-7: 48px;
   --sp-8: 64px;
+  --sp-9: 96px;
 
-  /* typography */
+  /* Page gutter grows with the viewport instead of stepping at breakpoints. */
+  --gutter: clamp(16px, 4vw, 32px);
+
+  /* ---- typography -------------------------------------------------------- */
   --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
           Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
                monospace;
-  --fs-xs: 12px;
-  --fs-sm: 13px;
-  --fs-md: 15px;
-  --fs-lg: 18px;
-  --fs-xl: 22px;
-  --fs-2xl: 30px;
-  --fs-3xl: 44px;
 
-  /* motion */
-  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --fs-xs:  12px;
+  --fs-sm:  13px;
+  --fs-md:  15px;
+  --fs-lg:  clamp(16px, 1.1vw + 13px, 18px);
+  --fs-xl:  clamp(19px, 1.6vw + 14px, 23px);
+  --fs-2xl: clamp(24px, 2.4vw + 16px, 32px);
+  --fs-3xl: clamp(34px, 6vw + 14px, 52px);
+  --fs-4xl: clamp(40px, 8vw + 12px, 68px);
+
+  /* ---- elevation ---------------------------------------------------------
+     Shadows on black are nearly invisible, so "elevation" is carried by a
+     hairline ring plus a soft accent bloom on interactive surfaces. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-2: 0 8px 28px rgba(0, 0, 0, 0.65);
+  --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.75);
+  --ring:     0 0 0 1px var(--border);
+  --ring-2:   0 0 0 1px var(--border-2);
+  --ring-accent: 0 0 0 1px var(--accent-line),
+                 0 0 24px -6px var(--accent-glow);
+
+  /* ---- motion ------------------------------------------------------------ */
+  --ease:      cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out:  cubic-bezier(0.16, 1, 0.30, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --t-fast: 120ms;
-  --t-med: 220ms;
+  --t-med:  220ms;
   --t-slow: 420ms;
 
-  /* layout */
-  --content-max: 720px;
-  --serp-max: 1180px;
-  --header-h: 132px;
+  /* ---- layout ------------------------------------------------------------ */
+  --content-max: 680px;   /* the result column: ~75 characters of snippet */
+  --serp-max:   1220px;   /* results + knowledge panel */
+  --wide-max:   1440px;   /* image grid and tool pages */
+  --prose-max:   72ch;    /* legal and help pages */
+  --panel-w:     360px;
+  --header-h:     64px;   /* the compact bar; tabs sit below it */
+
+  color-scheme: dark;
 }
 
-/* keep the canvas truly black on OLED, even in form controls */
-html { background: var(--bg); }
+/* Keep the canvas truly black everywhere, including form controls and the
+   overscroll area on iOS. */
+html {
+  background: var(--bg);
+  accent-color: var(--accent);
+}
+
+/* Respect a request for less motion: keep transitions perceptible but instant,
+   and stop entrance animations entirely. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 1ms;
+    --t-med: 1ms;
+    --t-slow: 1ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Readers who ask for more contrast get firmer lines and brighter metadata. */
+@media (prefers-contrast: more) {
+  :root {
+    --text-2: #c8c8dc;
+    --text-3: #a8a8c0;
+    --border: rgba(255, 255, 255, 0.18);
+    --border-2: rgba(255, 255, 255, 0.30);
+  }
+}
