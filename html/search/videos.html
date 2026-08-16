@@ -1,0 +1,13 @@
+{{ header|safe }}
+<div class="serp">
+  <main class="serp-main" id="main" style="max-width:var(--wide-max)">
+    <h1 class="visually-hidden">{{ h1 }}</h1>
+    <div class="serp-head">
+      <p class="result-meta">{{ meta|safe }}</p>
+    </div>
+    <div class="video-list">{{ results|safe }}</div>
+    {{ pager|safe }}
+  </main>
+</div>
+{% include "components/video-modal.html" %}
+{% include "components/footer.html" %}

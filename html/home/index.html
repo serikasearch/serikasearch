@@ -1,14 +1,24 @@
-<main class="home">
-  <a href="/" class="logo logo-lg" aria-label="SerikaSearch">serika<em>search</em></a>
-  <div class="home-search">{{ searchbox|safe }}</div>
-  <div class="home-stats">
-    <span class="stat"><b>{{ pages }}</b> pages</span>
-    <span class="stat-dot"></span>
-    <span class="stat"><b>{{ images }}</b> images</span>
-    <span class="stat-dot"></span>
-    <span class="stat"><b>{{ videos }}</b> videos</span>
-    <span class="stat-dot"></span>
-    <span class="stat"><b>{{ sites }}</b> sites</span>
+<main class="home" id="main">
+  <div class="home-inner">
+    <h1 class="home-h1"><a href="/" class="logo logo-lg">serika<em>search</em></a></h1>
+    <p class="home-sub">independent search · own crawler, own index, no tracking</p>
+    <div class="home-search">{{ searchbox|safe }}</div>
+    <div class="home-hints">{{ hints|safe }}</div>
+    <div class="recent-row" id="recentRow" hidden></div>
+    <div class="home-stats">
+      <span class="stat"><b>{{ pages }}</b> pages</span>
+      <span class="stat-dot"></span>
+      <span class="stat"><b>{{ images }}</b> images</span>
+      <span class="stat-dot"></span>
+      <span class="stat"><b>{{ videos }}</b> videos</span>
+      <span class="stat-dot"></span>
+      <span class="stat"><b>{{ sites }}</b> sites</span>
+    </div>
   </div>
+
+  <section class="home-tools">
+    <h2>Answers without leaving the page</h2>
+    <div class="tool-strip">{{ tools|safe }}</div>
+  </section>
 </main>
 {% include "components/footer.html" %}

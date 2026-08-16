@@ -1,0 +1,79 @@
+{{ header|safe }}
+<main class="tool-page" id="main">
+  <h1>Settings</h1>
+  <p class="lede">These are stored in your browser's localStorage and never sent
+     to the server. Clearing site data resets them.</p>
+
+  <div class="setting-row">
+    <div class="setting-text">
+      <h3>Open results in a new tab</h3>
+      <p>Every result link gets <code>target="_blank"</code>.</p>
+    </div>
+    <div class="setting-control">
+      <label class="switch">
+        <input type="checkbox" data-setting="newTab" aria-label="Open results in a new tab"/>
+        <span class="track"></span><span class="thumb"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-text">
+      <h3>Autocomplete suggestions</h3>
+      <p>Completions drawn from indexed page titles as you type. No query log exists.</p>
+    </div>
+    <div class="setting-control">
+      <label class="switch">
+        <input type="checkbox" data-setting="suggest" checked aria-label="Autocomplete suggestions"/>
+        <span class="track"></span><span class="thumb"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-text">
+      <h3>Remember recent searches</h3>
+      <p>Shown under the search box on the home page. Stored only in this browser.</p>
+    </div>
+    <div class="setting-control">
+      <label class="switch">
+        <input type="checkbox" data-setting="recent" aria-label="Remember recent searches"/>
+        <span class="track"></span><span class="thumb"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-text">
+      <h3>Instant answers</h3>
+      <p>Calculator, conversions, weather and the rest, above the results.</p>
+    </div>
+    <div class="setting-control">
+      <label class="switch">
+        <input type="checkbox" data-setting="answers" checked aria-label="Instant answers"/>
+        <span class="track"></span><span class="thumb"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-text">
+      <h3>Image grid density</h3>
+      <p>Target row height for the justified image grid.</p>
+    </div>
+    <div class="setting-control">
+      <div class="field">
+        <select data-setting="density" aria-label="Image grid density">
+          <option value="compact">Compact</option>
+          <option value="normal" selected>Normal</option>
+          <option value="large">Large</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-actions" style="margin-top:var(--sp-6)">
+    <button type="button" class="btn btn-ghost" id="clearLocal">Clear all local data</button>
+  </div>
+</main>
+{% include "components/footer.html" %}

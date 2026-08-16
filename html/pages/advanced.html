@@ -1,0 +1,55 @@
+{{ header|safe }}
+<main class="tool-page" id="main">
+  <h1>Advanced search</h1>
+  <p class="lede">Build a query with operators without memorising the syntax.
+     The finished query appears in the box at the bottom.</p>
+
+  <form class="form-grid" action="/search" method="get" id="advForm" style="max-width:640px">
+    <div class="field">
+      <label for="adv-all">All of these words</label>
+      <input type="text" id="adv-all" data-adv="all" placeholder="rust ownership borrow"/>
+    </div>
+    <div class="field">
+      <label for="adv-phrase">This exact phrase</label>
+      <input type="text" id="adv-phrase" data-adv="phrase" placeholder="borrow checker"/>
+    </div>
+    <div class="field">
+      <label for="adv-none">None of these words</label>
+      <input type="text" id="adv-none" data-adv="none" placeholder="crab game"/>
+    </div>
+    <div class="field">
+      <label for="adv-site">From this site</label>
+      <input type="text" id="adv-site" data-adv="site" placeholder="doc.rust-lang.org"/>
+    </div>
+    <div class="field">
+      <label for="adv-title">Words in the title</label>
+      <input type="text" id="adv-title" data-adv="intitle" placeholder="guide"/>
+    </div>
+    <div class="field">
+      <label for="adv-url">Words in the URL</label>
+      <input type="text" id="adv-url" data-adv="inurl" placeholder="book"/>
+    </div>
+    <div class="field">
+      <label for="adv-when">Indexed within</label>
+      <select id="adv-when" name="when">
+        <option value="">Any time</option>
+        <option value="day">Past day</option>
+        <option value="week">Past week</option>
+        <option value="month">Past month</option>
+        <option value="year">Past year</option>
+      </select>
+      <span class="hint">This filters by when the crawler last fetched a page —
+            not by when the page was written, which most pages do not state.</span>
+    </div>
+    <div class="field">
+      <label for="adv-q">Query</label>
+      <input type="text" id="adv-q" name="q" readonly
+             style="font-family:var(--font-mono);font-size:var(--fs-sm)"/>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Search</button>
+      <a class="btn btn-ghost" href="/help#operators">Operator reference</a>
+    </div>
+  </form>
+</main>
+{% include "components/footer.html" %}

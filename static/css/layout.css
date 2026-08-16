@@ -1,0 +1,445 @@
+/* SerikaSearch — page shell: header, search box, tabs, footer, home page. */
+
+/* ============================================================== header ==== */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  background: var(--bg-glass);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  border-bottom: 1px solid var(--border);
+  padding-top: env(safe-area-inset-top);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  max-width: var(--wide-max);
+  margin: 0 auto;
+  padding: var(--sp-3) var(--gutter);
+}
+
+.header .logo { flex: none; }
+
+.header-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 640px;
+}
+
+.header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: auto;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  color: var(--text-3);
+  transition: background var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease);
+}
+.icon-btn:hover { background: var(--bg-2); color: var(--text-1); }
+
+/* On phones the wordmark would eat the whole row, so it shrinks to the mark. */
+@media (max-width: 640px) {
+  .header-inner { gap: var(--sp-3); padding: var(--sp-2) var(--gutter); }
+  .header .logo { font-size: var(--fs-md); }
+  .header .logo .logo-tail { display: none; }
+  .header-actions .icon-btn.optional { display: none; }
+}
+
+/* ================================================================ tabs ==== */
+
+.tabs {
+  display: flex;
+  gap: var(--sp-1);
+  max-width: var(--wide-max);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  /* Fade the right edge so it reads as scrollable rather than clipped. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  position: relative;
+  flex: none;
+  scroll-snap-align: start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) calc(var(--sp-3) - 2px);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease);
+}
+.tab:hover { color: var(--text-1); }
+.tab.active {
+  color: var(--accent-2);
+  border-bottom-color: var(--accent);
+}
+.tab .n {
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.tab.active .n { color: var(--accent); }
+.tab svg { flex: none; opacity: 0.85; }
+
+/* ========================================================== search box ==== */
+
+.searchbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--sp-2) 0 var(--sp-4);
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-pill);
+  transition: border-color var(--t-med) var(--ease),
+              background var(--t-med) var(--ease),
+              box-shadow var(--t-med) var(--ease);
+}
+.searchbox:hover { background: var(--bg-3); }
+.searchbox:focus-within {
+  background: var(--bg-2);
+  border-color: var(--accent-line);
+  box-shadow: var(--ring-accent);
+}
+/* The ring above already communicates focus; a second outline is noise. */
+.searchbox:focus-within input:focus-visible { outline: none; }
+
+.searchbox .ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  transition: color var(--t-med) var(--ease);
+}
+.searchbox:focus-within .ico { color: var(--accent); }
+
+.searchbox input[type="text"],
+.searchbox input[type="search"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 46px;
+  background: none;
+  border: none;
+  color: var(--text-1);
+  /* 16px minimum stops iOS Safari zooming the page on focus. */
+  font-size: max(16px, var(--fs-md));
+  appearance: none;
+}
+.searchbox input::placeholder { color: var(--text-4); }
+.searchbox input::-webkit-search-cancel-button { display: none; }
+
+.clear-btn {
+  flex: none;
+  display: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  transition: background var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease);
+}
+.searchbox.has-value .clear-btn { display: grid; }
+.clear-btn:hover { background: var(--bg-4); color: var(--text-1); }
+
+.submit-btn {
+  flex: none;
+  height: 38px;
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-pill);
+  background: var(--accent-dim);
+  color: var(--accent-4);
+  font-size: var(--fs-sm);
+  font-weight: 650;
+  transition: background var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease);
+}
+.submit-btn:hover { background: var(--accent); color: #12071f; }
+
+@media (max-width: 560px) {
+  /* The magnifier already says "search"; the word is redundant on a phone. */
+  .submit-btn { display: none; }
+  .searchbox { padding-right: var(--sp-2); }
+}
+
+/* ------------------------------------------------------- suggestions ------ */
+
+.suggestions {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 80;
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  padding: var(--sp-1);
+}
+.suggestions[hidden] { display: none; }
+
+.suggestion {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-3);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  text-align: left;
+  cursor: pointer;
+}
+.suggestion:hover,
+.suggestion.active {
+  background: var(--bg-3);
+  color: var(--text-1);
+}
+.suggestion .s-ico { flex: none; color: var(--text-4); display: grid; }
+.suggestion.active .s-ico { color: var(--accent); }
+.suggestion .s-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggestion .s-text b { color: var(--text-1); font-weight: 650; }
+.suggestion .s-kind {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+}
+
+/* =============================================================== footer === */
+
+.footer {
+  margin-top: var(--sp-9);
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.footer-inner {
+  max-width: var(--wide-max);
+  margin: 0 auto;
+  padding: var(--sp-6) var(--gutter);
+  display: grid;
+  gap: var(--sp-5);
+  grid-template-columns: minmax(0, 1.4fr) repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.footer-brand-block { max-width: 34ch; }
+.footer-brand-block .logo { font-size: var(--fs-md); }
+.footer-tagline {
+  margin-top: var(--sp-2);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+.footer-col h3 {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: var(--sp-3);
+}
+.footer-col ul { list-style: none; padding: 0; }
+.footer-col li { margin-bottom: var(--sp-2); }
+.footer-col a {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.footer-col a:hover { color: var(--accent-2); }
+
+.footer-bottom {
+  max-width: var(--wide-max);
+  margin: 0 auto;
+  padding: var(--sp-4) var(--gutter) var(--sp-6);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.footer-sep { color: var(--text-4); }
+
+/* ============================================================== home ====== */
+
+.home {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--gutter);
+  padding-top: clamp(56px, 14vh, 140px);
+}
+
+.home-inner {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.home .logo-lg { margin-bottom: var(--sp-2); }
+
+.home-sub {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-6);
+  text-align: center;
+}
+
+.home-search { width: 100%; }
+.home-search .searchbox { min-height: 56px; }
+.home-search .searchbox input { height: 54px; font-size: max(16px, var(--fs-lg)); }
+
+.home-hints {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+}
+
+.home-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  margin-top: var(--sp-7);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.home-stats .stat b {
+  color: var(--text-1);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.stat-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+
+/* A compact directory of the instant-answer tools, straight on the home page. */
+.home-tools {
+  width: 100%;
+  max-width: var(--wide-max);
+  margin: var(--sp-9) auto 0;
+}
+.home-tools h2 {
+  font-size: var(--fs-sm);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--sp-4);
+  text-align: center;
+}
+.tool-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: var(--sp-3);
+}
+.tool-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  min-height: 52px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  transition: background var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+}
+.tool-chip:hover {
+  background: var(--bg-2);
+  border-color: var(--accent-line);
+  color: var(--text-1);
+  transform: translateY(-2px);
+}
+.tool-chip svg { flex: none; color: var(--accent); opacity: 0.9; }
+
+/* Recent searches, stored locally and rendered by JS when present. */
+.recent-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+  justify-content: center;
+}
+.recent-row .recent-label {
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+
+/* =============================================================== error ==== */
+
+.error-box {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.error-code {
+  font-size: var(--fs-3xl);
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.error-message { color: var(--text-2); }
+.error-home { margin-top: var(--sp-4); }
+
+/* The home page's wordmark doubles as its <h1>; it must not pick up heading
+   margins or a default font size. */
+.home-h1 {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1;
+  margin: 0 0 var(--sp-2);
+}

@@ -1,0 +1,15 @@
+{{ header|safe }}
+<div class="doc">
+  <nav class="doc-toc" aria-label="On this page">
+    <h2>On this page</h2>
+    <ul>{{ toc|safe }}</ul>
+  </nav>
+  <article class="doc-body" id="main">
+    <span class="doc-kicker">{{ kicker }}</span>
+    <h1 class="doc-title">{{ title }}</h1>
+    <p class="doc-summary">{{ summary }}</p>
+    <p class="doc-updated">Last updated {{ updated }}</p>
+    {{ sections|safe }}
+  </article>
+</div>
+{% include "components/footer.html" %}

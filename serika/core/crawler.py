@@ -242,6 +242,10 @@ class Crawler:
         if self.same_host_only and host not in self.seed_hosts:
             return
 
+        # --- opt-out gate: a site that asked to be removed is never fetched ---
+        if self.index.is_blocked(host):
+            return
+
         # --- politeness gate: robots.txt first, always ---
         if not self.robots.can_fetch(url):
             self._log(f"  ⊘ robots.txt disallows  {url}")
@@ -272,6 +276,14 @@ class Crawler:
                 self.pages_crawled += 1
                 n = self.pages_crawled
             self._log(f"  ✓ [{n}] {url}  ({len(page.text.split())}w)")
+
+            # Open Graph / JSON-LD, so results can show a preview image, a
+            # byline and a date instead of a bare link.
+            if page.meta or page.headings:
+                try:
+                    self.index.set_page_meta(url, host, page.meta, page.headings)
+                except Exception:
+                    pass
 
             # Batch-insert images for speed.
             if self.want_images and page.images:

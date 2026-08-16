@@ -2,23 +2,31 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="color-scheme" content="dark"/>
 <meta name="referrer" content="strict-origin-when-cross-origin"/>
 <meta name="theme-color" content="#000000"/>
 <title>{{ title }}</title>
+<meta name="description" content="{{ description }}"/>
+{{ head_extra|safe }}
 <link rel="icon" href="{{ favicon|safe }}"/>
-<link rel="stylesheet" href="/static/css/theme.css?v=4"/>
-<link rel="stylesheet" href="/static/css/base.css?v=4"/>
-<link rel="stylesheet" href="/static/css/components.css?v=4"/>
-<link rel="stylesheet" href="/static/css/home.css?v=4"/>
-<link rel="stylesheet" href="/static/css/results.css?v=4"/>
-<link rel="stylesheet" href="/static/css/panel.css?v=4"/>
-<link rel="stylesheet" href="/static/css/images.css?v=4"/>
-<link rel="stylesheet" href="/static/css/animations.css?v=4"/>
+<link rel="apple-touch-icon" href="{{ favicon|safe }}"/>
+<link rel="manifest" href="/manifest.webmanifest"/>
+<link rel="search" type="application/opensearchdescription+xml"
+      title="SerikaSearch" href="/opensearch.xml"/>
+<link rel="stylesheet" href="/static/css/theme.css?v={{ v }}"/>
+<link rel="stylesheet" href="/static/css/base.css?v={{ v }}"/>
+<link rel="stylesheet" href="/static/css/layout.css?v={{ v }}"/>
+<link rel="stylesheet" href="/static/css/results.css?v={{ v }}"/>
+<link rel="stylesheet" href="/static/css/images.css?v={{ v }}"/>
+<link rel="stylesheet" href="/static/css/pages.css?v={{ v }}"/>
+<link rel="stylesheet" href="/static/css/animations.css?v={{ v }}"/>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 {{ body|safe }}
-<script src="/static/js/app.js?v=4" defer></script>
+{% include "components/shortcuts.html" %}
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/static/js/app.js?v={{ v }}" defer></script>
 </body>
 </html>
