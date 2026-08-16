@@ -27,7 +27,7 @@ __all__ = ["shell", "header", "searchbox", "result_cards", "image_cards",
            "pager", "related_block", "did_you_mean_block", "doc_sections",
            "doc_toc", "tool_cards", "bang_groups", "stat_cards", "icon"]
 
-ASSET_VERSION = "13"
+ASSET_VERSION = "14"
 
 WORDMARK = "serika<em>search</em>"
 
@@ -105,6 +105,8 @@ _ICON_PATHS = {
     "globe": '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/>',
     "tv": '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="m7 3 5 4 5-4"/>',
     "luggage": '<rect x="6" y="7" width="12" height="14" rx="2"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3M10 11v6M14 11v6"/>',
+    "plane": '<path d="M17.8 19.8 16 14l3-3c1.5-1.5 2-3.5 1-4.5s-3-.5-4.5 1l-3 3-5.8-1.8a1 1 0 0 0-1 .3l-.5.5a.5.5 0 0 0 .1.8L9 13l-2 2H5l-1.5 1.5a.5.5 0 0 0 .2.8L7 18l1.2 2.8a.5.5 0 0 0 .8.2L10.5 20v-2l2-2 3.9 3.4a.5.5 0 0 0 .8-.1l.5-.5a1 1 0 0 0 .1-1z"/>',
+    "coin": '<circle cx="12" cy="12" r="9"/><path d="M14.5 9a2.5 2.5 0 0 0-2.5-1.5c-1.5 0-2.5.8-2.5 2s1 1.8 2.5 2.2 2.5.9 2.5 2-1 2-2.5 2A2.5 2.5 0 0 1 9.5 16M12 6v1.5M12 16.5V18"/>',
 }
 
 
@@ -500,6 +502,8 @@ _ANSWER_KICKERS = {
     "anime": ("Anime schedule", "tv"),
     "stream": ("Where to watch", "tv"),
     "artist": ("Artist", "tv"),
+    "tax": ("Take-home pay", "receipt"),
+    "flight": ("Flight tracker", "plane"),
     "interactive": ("Tool", "spark"),
 }
 
@@ -1022,8 +1026,11 @@ def interactive_widget(widget: str, bpm: str = "", blurb: str = "",
 def _translate_body(answer) -> str:
     per_word = ""
     if answer.data.get("literal") and answer.rows:
+        # A word that came back unchanged wasn't in the dictionary — mark it so
+        # the reader can see exactly which words were translated.
         chips = "".join(
-            f'<span class="tr-word"><b>{e(src)}</b> → {e(dst)}</span>'
+            f'<span class="tr-word{"" if src.lower() != dst.lower() else " unknown"}">'
+            f'<b>{e(src)}</b> → {e(dst)}</span>'
             for src, dst in answer.rows
         )
         per_word = f'<div class="tr-words">{chips}</div>'
@@ -1165,6 +1172,92 @@ def artist_card(card) -> str:
     )
 
 
+def _tax_country_form(selected: str, gross: float = 0.0) -> str:
+    from ..tools.tax import COUNTRIES
+    options = "".join(
+        f'<option value="{e(code)}"{" selected" if code == selected else ""}>'
+        f'{e(c.name)}</option>' for code, c in COUNTRIES.items()
+    )
+    amount = f'{gross:.0f}' if gross else ""
+    return (
+        '<form class="tax-form" action="/tools/salary" method="get">'
+        f'<input type="number" name="amount" value="{e(amount)}" '
+        'placeholder="Gross salary" min="0" step="1000" aria-label="Gross salary"/>'
+        f'<select name="country" aria-label="Country">{options}</select>'
+        '<button type="submit" class="btn btn-primary btn-sm">Calculate</button>'
+        '</form>'
+    )
+
+
+def _tax_body(answer) -> str:
+    data = answer.data
+    if data.get("empty"):
+        return (
+            f'<div class="answer-value" style="font-size:var(--fs-xl)">'
+            f'{e(answer.title)}</div>'
+            f'<div class="answer-detail">{e(answer.subtitle)}</div>'
+            + _tax_country_form(data.get("country", "us"))
+        )
+    # A net-vs-deductions bar, then the breakdown, then the period grid.
+    gross = data.get("gross", 0) or 1
+    net = data.get("net", 0)
+    net_pct = max(0, min(100, net / gross * 100))
+    bar = (f'<div class="tax-bar"><span class="tax-bar-net" '
+           f'style="width:{net_pct:.1f}%"></span></div>')
+    period = data.get("period", {})
+    grid = ""
+    if period:
+        cells = "".join(
+            f'<div class="tax-period"><span class="tp-label">{e(label)}</span>'
+            f'<span class="tp-value">{e(f"{period[key]:,.0f}")}</span></div>'
+            for key, label in (("month", "Monthly"), ("week", "Weekly"),
+                               ("day", "Daily"), ("hour", "Hourly"))
+            if key in period
+        )
+        grid = f'<div class="tax-periods">{cells}</div>'
+    note = (f'<p class="answer-detail" style="margin-top:var(--sp-3)">'
+            f'{e(data.get("note", ""))}</p>' if data.get("note") else "")
+    return (
+        f'<div class="answer-sub" style="font-family:var(--font)">'
+        f'{e(answer.subtitle)}</div>'
+        f'<div class="answer-value">{e(answer.title)}</div>'
+        f'<div class="answer-detail">{e(answer.detail)}</div>'
+        f'{bar}{_answer_rows(answer.rows)}{grid}{note}'
+        + _tax_country_form(data.get("country", "us"), data.get("gross", 0))
+    )
+
+
+def _flight_body(answer) -> str:
+    data = answer.data
+    heading = data.get("heading", 0)
+    lat, lon = data.get("lat", 0), data.get("lon", 0)
+    # A compass rose with the aircraft's heading, drawn inline (no map tiles).
+    compass = (
+        f'<svg class="flight-compass" viewBox="0 0 100 100" width="90" '
+        f'height="90" aria-hidden="true">'
+        f'<circle cx="50" cy="50" r="46" fill="none" stroke="var(--border-2)" '
+        f'stroke-width="2"/>'
+        f'<text x="50" y="14" text-anchor="middle" fill="var(--text-4)" '
+        f'font-size="9">N</text>'
+        f'<g transform="rotate({heading:.0f} 50 50)">'
+        f'<path d="M50 18 L58 62 L50 54 L42 62 Z" fill="var(--accent)"/>'
+        f'</g></svg>'
+    )
+    osm = (f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=8/"
+           f"{lat}/{lon}")
+    link = (f'<a class="btn btn-ghost btn-sm" href="{e(osm)}" target="_blank" '
+            f'rel="noopener noreferrer">Open map {icon("external", 12)}</a>')
+    return (
+        f'<div class="flight-head">'
+        f'<div class="flight-title"><div class="answer-value">'
+        f'{e(answer.title)}</div>'
+        f'<div class="answer-detail">{e(answer.detail)}</div></div>'
+        f'{compass}</div>'
+        f'{_answer_rows(answer.rows)}'
+        f'<div class="answer-actions" style="margin-top:var(--sp-3)">{link}</div>'
+    )
+
+
 def answer_card(answer, tool_link: bool = True) -> str:
     """Render an instant answer. Structure varies by kind; the shell is shared."""
     if answer is None:
@@ -1198,6 +1291,10 @@ def answer_card(answer, tool_link: bool = True) -> str:
         body = _anime_body(answer)
     elif answer.kind == "stream":
         body = _stream_body(answer)
+    elif answer.kind == "tax":
+        body = _tax_body(answer)
+    elif answer.kind == "flight":
+        body = _flight_body(answer)
     else:
         sub = (f'<div class="answer-sub">{e(answer.subtitle)}</div>'
                if answer.subtitle else "")

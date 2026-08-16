@@ -22,10 +22,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from . import (anime, calc, convert, generate, live, luggage, qr, recipe,
-               stream, timely, translate, units, universe, widgets)
+from . import (anime, calc, convert, flights, generate, live, luggage, qr,
+               recipe, stream, tax, timely, translate, units, universe, widgets)
 
-__all__ = ["Answer", "resolve", "TOOLS", "tool_by_slug"]
+__all__ = ["Answer", "resolve", "TOOLS", "tool_by_slug", "tax_answer"]
 
 
 @dataclass
@@ -446,6 +446,84 @@ def _stream(query: str, ctx: dict) -> Optional[Answer]:
     )
 
 
+def _paycheck(query: str, ctx: dict) -> Optional[Answer]:
+    parsed = tax.parse_salary(query)
+    if parsed is None:
+        return None
+    return tax_answer(0 if parsed.empty else parsed.gross, parsed.country)
+
+
+def tax_answer(gross: float, country_code: str) -> Optional[Answer]:
+    """Build the take-home-pay Answer for a gross salary and country.
+
+    Public so the salary tool page (which takes amount + country from a form)
+    and the query resolver share exactly the same rendering.
+    """
+    if gross <= 0:
+        return Answer(kind="tax", title="Take-home pay calculator",
+                      subtitle="Enter a gross salary to estimate net pay.",
+                      tool="salary",
+                      data={"empty": True, "country": country_code or "us"})
+    result = tax.estimate(gross, country_code or "us")
+    if result is None:
+        return None
+    sym = result.country.symbol
+    rows = [(line.label, f"{sym}{line.amount:,.0f}"
+             + (f"  ({line.detail})" if line.detail else ""))
+            for line in result.lines]
+    rows.append(("Take-home pay", f"{sym}{result.net:,.0f}"))
+    return Answer(
+        kind="tax",
+        title=f"{sym}{result.net:,.0f}",
+        subtitle=f"net per year · {result.country.name}",
+        detail=f"{result.effective_rate:.1f}% effective rate · "
+               f"{result.marginal_rate:.0f}% marginal · "
+               f"{sym}{result.period_net['month']:,.0f}/month",
+        rows=rows,
+        source=f"{result.country.name} {tax.TAX_YEAR} rates — estimate",
+        tool="salary", copy_value=f"{result.net:,.0f}",
+        data={
+            "country": result.country.code,
+            "gross": result.gross,
+            "net": result.net,
+            "note": result.country.note,
+            "period": {k: round(v) for k, v in result.period_net.items()},
+        },
+    )
+
+
+def _flight(query: str, ctx: dict) -> Optional[Answer]:
+    flight = flights.track_flight(query)
+    if flight is None:
+        return None
+    status = "On the ground" if flight.on_ground else "In the air"
+    climb = ""
+    if not flight.on_ground and abs(flight.vertical_ms) > 0.5:
+        climb = "climbing" if flight.vertical_ms > 0 else "descending"
+    rows = [
+        ("Status", status + (f" · {climb}" if climb else "")),
+        ("Position", f"{flight.latitude:.3f}, {flight.longitude:.3f}"),
+        ("Altitude", f"{flight.altitude_ft:,} ft"),
+        ("Ground speed", f"{flight.speed_kmh:,} km/h · {flight.speed_knots} kn"),
+        ("Heading", f"{flight.heading:.0f}° {flight.compass}"),
+        ("Origin country", flight.origin_country),
+    ]
+    return Answer(
+        kind="flight",
+        title=f"{flight.flag} {flight.callsign}",
+        subtitle=status + f" · {flight.origin_country}",
+        detail=f"{flight.altitude_ft:,} ft · {flight.speed_kmh:,} km/h · "
+               f"heading {flight.compass}",
+        rows=rows,
+        source="OpenSky Network (live ADS-B)",
+        source_url="https://opensky-network.org/",
+        copy_value=flight.callsign,
+        data={"lat": flight.latitude, "lon": flight.longitude,
+              "heading": flight.heading, "callsign": flight.callsign,
+              "on_ground": flight.on_ground},
+    )
+
+
 def _recipe(query: str, ctx: dict) -> Optional[Answer]:
     if recipe.parse_recipe(query) is None:
         return None
@@ -538,6 +616,8 @@ _MATCHERS: tuple[Callable[[str, dict], Optional[Answer]], ...] = (
     _sun,
     _anime,
     _stream,
+    _flight,
+    _paycheck,
     _luggage,
     _translate,
     _recipe,
@@ -711,6 +791,12 @@ TOOLS: tuple[ToolInfo, ...] = (
     ToolInfo("artist", "Artist & discography",
              "Genres, active years, albums and links, from MusicBrainz.",
              "Media", "taylor swift discography", "tv"),
+    ToolInfo("salary", "Take-home pay",
+             "Estimate net pay and tax from a gross salary, seven countries.",
+             "Money", "take home pay 60000 uk", "receipt"),
+    ToolInfo("flight", "Flight tracker",
+             "Live position, altitude and speed of a flight, from OpenSky.",
+             "Everyday", "track flight BA2490", "plane"),
 )
 
 _TOOLS_BY_SLUG = {tool.slug: tool for tool in TOOLS}
