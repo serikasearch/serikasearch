@@ -466,3 +466,68 @@ def month_calendar(year: int = 0, month: int = 0) -> dict:
         "today": (today.year, today.month, today.day),
         "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     }
+
+
+# --------------------------------------------------------------------------- #
+# meeting planner across time zones
+# --------------------------------------------------------------------------- #
+
+_MEETING_RE = re.compile(
+    r"^\s*(?:meeting\s+planner|plan\s+(?:a\s+)?meeting|time\s*zone\s+"
+    r"(?:meeting|planner|overlap)|world\s+clock\s+meeting|"
+    r"schedule\s+across\s+time\s*zones?)\s*(.*)$",
+    re.I,
+)
+
+
+def parse_meeting(query: str):
+    """``meeting planner``, or ``meeting planner tokyo london new york``.
+
+    Returns a dict the widget hydrates, or ``None``. Cities named in the query
+    pre-fill the planner; otherwise it opens with a sensible default set.
+    """
+    match = _MEETING_RE.match(query.strip())
+    if not match:
+        return None
+
+    trailing = match.group(1).strip()
+    zones: list[str] = []
+    if trailing:
+        # Split on commas or "and"; resolve each fragment to a zone.
+        for fragment in re.split(r"\s*(?:,|\band\b)\s*", trailing):
+            fragment = fragment.strip()
+            if not fragment:
+                continue
+            zone = _resolve_zone(fragment)
+            if zone:
+                zones.append(zone)
+    if not zones:
+        zones = ["America/Los_Angeles", "America/New_York",
+                 "Europe/London", "Asia/Tokyo"]
+    # De-duplicate, preserve order, cap at 5 columns.
+    seen: set[str] = set()
+    unique = [z for z in zones if not (z in seen or seen.add(z))][:5]
+    return {"zones": unique}
+
+
+def meeting_columns(zones: list[str]) -> list[dict]:
+    """Per-zone data for the planner grid: label, current offset, and the UTC
+    offset in hours so the client can shade each local hour."""
+    if ZoneInfo is None:
+        return []
+    from datetime import datetime as _dt
+    out = []
+    for zone_name in zones:
+        try:
+            tz = ZoneInfo(zone_name)
+        except Exception:
+            continue
+        now = _dt.now(tz)
+        offset = now.utcoffset() or timedelta(0)
+        out.append({
+            "zone": zone_name,
+            "label": zone_name.rsplit("/", 1)[-1].replace("_", " "),
+            "offset_hours": offset.total_seconds() / 3600.0,
+            "abbrev": now.strftime("%Z"),
+        })
+    return out

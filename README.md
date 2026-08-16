@@ -112,10 +112,20 @@ Thirty-odd tools that answer in the results page. Most need no network at all.
 | `morse code hello` | Morse encode/decode with audio |
 | `carry on size ryanair` | Cabin-bag limits for 28 airlines |
 | `anime schedule` | Upcoming anime episodes (AniList) |
+| `where to watch inception` | Streaming availability by country (JustWatch) |
+| `taylor swift discography` | Artist genres, albums, links (MusicBrainz) |
+
+**Live data, all keyless and free.** Weather (Open-Meteo), currency (ECB via
+Frankfurter), anime (AniList GraphQL), where-to-watch (JustWatch, with TVmaze
+for TV networks), and artists (MusicBrainz + honest tour/ticket links, since no
+concert API is free and keyless). Every one is cached so a popular query hits
+the upstream once.
 
 **Interactive widgets** (live client components — Web Audio, canvas-free,
 all behaviour in `app.js` under a strict CSP): `stopwatch`, `metronome`,
-`white noise`, `periodic table`, `font preview`, `colour picker`, and
+`white noise`, `periodic table`, `font preview`, `colour picker`,
+`recipe converter` (fraction-aware scaling + dietary swaps),
+`meeting planner` (overlapping working hours across time zones), and
 `scale of universe` — a logarithmic zoom from the Planck length to the
 observable universe.
 

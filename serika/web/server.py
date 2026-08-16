@@ -42,11 +42,24 @@ MAX_QUERY_LEN = 400
 # Tools whose page hosts a live client widget instead of answering a query.
 _INTERACTIVE_TOOL_SLUGS = frozenset({
     "stopwatch", "metronome", "noise", "periodic-table", "font-preview",
-    "color-picker", "scale-of-universe", "luggage",
+    "color-picker", "scale-of-universe", "luggage", "recipe",
+    "meeting-planner",
 })
 
 # Interactive tool slug -> the widget key its page should render.
-_TOOL_WIDGET = {"scale-of-universe": "universe", "luggage": "luggage"}
+_TOOL_WIDGET = {"scale-of-universe": "universe", "luggage": "luggage",
+                "recipe": "recipe", "meeting-planner": "meeting"}
+
+# Music-intent keywords: when a Wikipedia panel's description contains one of
+# these, the page also fetches a MusicBrainz artist card.
+_MUSIC_WORDS = re.compile(
+    r"\b(singer|songwriter|rapper|musician|band|duo|group|producer|"
+    r"vocalist|guitarist|drummer|dj|composer|virtual youtuber|vtuber|"
+    r"idol|girl group|boy band|record producer)\b", re.I)
+# Explicit music queries: "<name> discography/albums/tour/songs/concerts".
+_ARTIST_INTENT = re.compile(
+    r"^(.+?)\s+(discography|albums?|songs?|tour|tours|concerts?|"
+    r"setlist|setlists|tickets?)\s*$", re.I)
 
 # Example searches under the home-page search box: one per kind of answer, so
 # the range of the thing is visible without reading documentation.
@@ -323,6 +336,35 @@ class Handler(BaseHTTPRequestHandler):
         })
         return R.answer_card(answer)
 
+    def _artist_card(self, q: str, parsed, knowledge_card) -> str:
+        """A MusicBrainz artist card when the query is about a musician.
+
+        Triggered explicitly ("<name> discography/tour/…") or implicitly when
+        the knowledge panel's summary describes a musician. Kept off the path
+        for ordinary queries so most searches never pay for the lookup.
+        """
+        from ..tools import music
+
+        name = ""
+        intent = _ARTIST_INTENT.match(q.strip())
+        if intent:
+            name = intent.group(1).strip()
+        elif knowledge_card is not None:
+            summary = (getattr(knowledge_card, "summary", "") or "")[:400]
+            facts = " ".join(v for _, v in getattr(knowledge_card, "facts", []))
+            if _MUSIC_WORDS.search(summary + " " + facts):
+                name = knowledge_card.title
+        if not name or len(name) < 2:
+            return ""
+
+        try:
+            card = music.lookup_artist(name)
+        except Exception:
+            return ""
+        if card is None:
+            return ""
+        return R.artist_card(card)
+
     def _web_results(self, q: str, page: int, freshness: str = "",
                      source: str = "") -> str:
         parsed = parse_query(q)
@@ -345,6 +387,12 @@ class Handler(BaseHTTPRequestHandler):
         answer_html = self._instant_answer(q)
         filters = R.freshness_filters(q, "web", freshness)
 
+        # An explicit "<name> discography/tour/…" often has no web results (the
+        # keyword narrows the index), so resolve the artist card before the
+        # empty-results check — otherwise it would be lost.
+        if page == 1 and _ARTIST_INTENT.match(q.strip()):
+            answer_html = self._artist_card(q, parsed, None) + answer_html
+
         if not results:
             return self._empty_web(q, header, answer_html, filters, freshness)
 
@@ -364,6 +412,13 @@ class Handler(BaseHTTPRequestHandler):
             if card:
                 panel_html = R.knowledge_panel(card, q)
                 serp_mod = "with-panel"
+            # Enrich musicians with a MusicBrainz card (discography, links).
+            # The explicit-intent case is already handled above the results
+            # check, so here we only do the implicit (panel-says-musician) path.
+            if not _ARTIST_INTENT.match(q.strip()):
+                artist_html = self._artist_card(q, parsed, card)
+                if artist_html:
+                    answer_html = artist_html + answer_html
 
         related = ""
         if page == 1 and parsed.fts:
@@ -603,6 +658,16 @@ class Handler(BaseHTTPRequestHandler):
         if slug in _INTERACTIVE_TOOL_SLUGS and not q:
             bpm = _str_param(params, "bpm", limit=4)
             answer_html = R.interactive_widget(_TOOL_WIDGET.get(slug, slug), bpm)
+        elif slug == "artist" and q:
+            # The artist card lives in the web layer, not the resolver.
+            from ..tools import music
+            try:
+                card = music.lookup_artist(_ARTIST_INTENT.sub(r"\1", q.strip()))
+            except Exception:
+                card = None
+            answer_html = (R.artist_card(card) if card else
+                           '<div class="notice bad">No artist found for '
+                           f"“{html.escape(q)}”.</div>")
         elif q:
             answer_html = self._instant_answer(q)
             if not answer_html:
@@ -1299,6 +1364,12 @@ _TOOL_EXAMPLES = {
     "anime": ["anime schedule", "airing anime", "upcoming anime"],
     "luggage": ["carry on size ryanair", "cabin bag emirates",
                 "hand luggage british airways"],
+    "stream": ["where to watch inception", "where can i stream dune in uk",
+               "where to watch breaking bad"],
+    "recipe": ["recipe converter"],
+    "meeting-planner": ["meeting planner", "meeting planner tokyo london new york"],
+    "artist": ["taylor swift discography", "ado", "drake albums",
+               "joost klein"],
 }
 
 
@@ -1314,8 +1385,11 @@ def serve(index_path: str = "serika.db", host: str = "127.0.0.1",
     # so a popular weather or Wikipedia query hits the network once.
     live_tools.set_cache(index._redis)
     reference.set_cache(index._redis)
-    from ..tools import anime as anime_tool
+    from ..tools import anime as anime_tool, stream as stream_tool, \
+        music as music_tool
     anime_tool.set_cache(index._redis)
+    stream_tool.set_cache(index._redis)
+    music_tool.set_cache(index._redis)
 
     Handler.index = index
     Handler.api_limiter = RateLimiter(limit=120, window=60)

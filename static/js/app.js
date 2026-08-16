@@ -1383,6 +1383,181 @@
     });
   });
 
+  /* ==================================================== recipe converter == */
+
+  $$("[data-recipe]").forEach(function (root) {
+    var input = $("[data-recipe-input]", root);
+    var factor = $("[data-recipe-factor]", root);
+    var fromServ = $("[data-recipe-from]", root);
+    var toServ = $("[data-recipe-to]", root);
+    var output = $("[data-recipe-output]", root);
+    var subs;
+    try { subs = JSON.parse(root.getAttribute("data-subs")); }
+    catch (e) { subs = {}; }
+    var activeDiets = {};
+
+    /* A compact port of the server's fraction-aware scaler. */
+    var UNI = { "½": ".5", "⅓": " 1/3", "⅔": " 2/3", "¼": ".25", "¾": ".75",
+      "⅛": ".125", "⅜": ".375", "⅝": ".625", "⅞": ".875" };
+    function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+    function toFraction(str) {
+      str = str.trim();
+      if (str.indexOf(" ") >= 0) {
+        var p = str.split(/\s+/);
+        var f = p[1].split("/");
+        return parseInt(p[0], 10) + parseInt(f[0], 10) / parseInt(f[1], 10);
+      }
+      if (str.indexOf("/") >= 0) {
+        var q = str.split("/"); return parseInt(q[0], 10) / parseInt(q[1], 10);
+      }
+      return parseFloat(str);
+    }
+    function fmt(value) {
+      if (value === 0) return "0";
+      var whole = Math.floor(value);
+      var frac = value - whole;
+      if (frac < 0.02) return String(whole);
+      /* snap to sixteenths */
+      var num = Math.round(frac * 16), den = 16;
+      var g = gcd(num, den); num /= g; den /= g;
+      if (num === 0) return String(whole);
+      if (num === den) return String(whole + 1);
+      var f = num + "/" + den;
+      return whole ? whole + " " + f : f;
+    }
+    function scaleLine(line, mult) {
+      var norm = line;
+      for (var k in UNI) norm = norm.split(k).join(UNI[k]);
+      norm = norm.replace(/(\d)\s+\./g, "$1.");
+      var m = norm.match(/^\s*(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.\d+|\d+(?:\.\d+)?)\s*(.*)$/);
+      if (!m) return line.trim();
+      var q = toFraction(m[1]);
+      if (isNaN(q)) return line.trim();
+      var rest = m[2];
+      for (var diet in activeDiets) {
+        if (!activeDiets[diet]) continue;
+        (subs[diet] || []).forEach(function (rule) {
+          rest = rest.replace(new RegExp(rule[0], "gi"), rule[1]);
+        });
+      }
+      return (fmt(q * mult) + " " + rest).trim();
+    }
+
+    function currentFactor() {
+      var f = parseFloat(factor.value);
+      if (f && f > 0) return f;
+      var a = parseInt(fromServ.value, 10), b = parseInt(toServ.value, 10);
+      return (a > 0 && b > 0) ? b / a : 1;
+    }
+
+    function render() {
+      var mult = currentFactor();
+      var lines = input.value.split("\n");
+      output.innerHTML = "";
+      lines.forEach(function (line) {
+        if (!line.trim()) return;
+        var div = document.createElement("div");
+        div.className = "recipe-line";
+        div.textContent = scaleLine(line, mult);
+        output.appendChild(div);
+      });
+    }
+
+    input.addEventListener("input", render);
+    factor.addEventListener("input", function () { render(); });
+    [fromServ, toServ].forEach(function (el) {
+      el.addEventListener("input", function () { factor.value = ""; render(); });
+    });
+    $$("[data-recipe-preset]", root).forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        factor.value = btn.getAttribute("data-recipe-preset");
+        render();
+      });
+    });
+    $$("[data-diet]", root).forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var diet = btn.getAttribute("data-diet");
+        activeDiets[diet] = !activeDiets[diet];
+        btn.setAttribute("aria-pressed", activeDiets[diet] ? "true" : "false");
+        render();
+      });
+    });
+    render();
+  });
+
+  /* ==================================================== meeting planner === */
+
+  $$("[data-meeting]").forEach(function (root) {
+    var grid = $("[data-meet-grid]", root);
+    var addBtn = $("[data-meet-add]", root);
+    var addInput = $("[data-meet-input]", root);
+    var columns;
+    try { columns = JSON.parse(root.getAttribute("data-columns")); }
+    catch (e) { columns = []; }
+
+    var CITY_TO_ZONE = {
+      "tokyo": ["Asia/Tokyo", 9], "london": ["Europe/London", 1],
+      "new york": ["America/New_York", -4], "los angeles": ["America/Los_Angeles", -7],
+      "paris": ["Europe/Paris", 2], "berlin": ["Europe/Berlin", 2],
+      "sydney": ["Australia/Sydney", 10], "dubai": ["Asia/Dubai", 4],
+      "singapore": ["Asia/Singapore", 8], "mumbai": ["Asia/Kolkata", 5.5],
+      "chicago": ["America/Chicago", -5], "sao paulo": ["America/Sao_Paulo", -3],
+      "moscow": ["Europe/Moscow", 3], "beijing": ["Asia/Shanghai", 8],
+      "seoul": ["Asia/Seoul", 9], "toronto": ["America/Toronto", -4]
+    };
+
+    function render() {
+      /* Base row: UTC hours 0..23. Each column shows its local hour, shaded
+         green when it's daytime everywhere (the overlap). */
+      var html = '<div class="meet-row meet-head"><span class="meet-label">UTC</span>';
+      for (var h = 0; h < 24; h++) html += '<span class="meet-hr">' + h + '</span>';
+      html += '</div>';
+
+      columns.forEach(function (col, ci) {
+        html += '<div class="meet-row"><span class="meet-label">' +
+          col.label + ' <small>' + col.abbrev + '</small>' +
+          (columns.length > 1 ? ' <button class="meet-rm" data-rm="' + ci +
+           '" aria-label="Remove">×</button>' : '') + '</span>';
+        for (var h = 0; h < 24; h++) {
+          var local = ((h + Math.floor(col.offset_hours)) % 24 + 24) % 24;
+          var daytime = local >= 8 && local < 20;
+          var overlap = columns.every(function (c) {
+            var l = ((h + Math.floor(c.offset_hours)) % 24 + 24) % 24;
+            return l >= 8 && l < 20;
+          });
+          var cls = "meet-cell" + (overlap ? " overlap" : (daytime ? " day" : ""));
+          html += '<span class="' + cls + '">' + local + '</span>';
+        }
+        html += '</div>';
+      });
+      grid.innerHTML = html;
+
+      $$("[data-rm]", grid).forEach(function (b) {
+        b.addEventListener("click", function () {
+          columns.splice(parseInt(b.getAttribute("data-rm"), 10), 1);
+          render();
+        });
+      });
+    }
+
+    function add() {
+      var city = addInput.value.trim().toLowerCase();
+      var z = CITY_TO_ZONE[city];
+      if (!z) { toast("Try a major city name"); return; }
+      if (columns.length >= 6) { toast("Up to 6 zones"); return; }
+      columns.push({ zone: z[0], label: city.replace(/\b\w/g, function (c) {
+        return c.toUpperCase(); }), offset_hours: z[1], abbrev: "" });
+      addInput.value = "";
+      render();
+    }
+
+    if (addBtn) addBtn.addEventListener("click", add);
+    if (addInput) addInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); add(); }
+    });
+    render();
+  });
+
   /* ================================================ scale of universe ===== */
 
   $$("[data-universe]").forEach(function (root) {

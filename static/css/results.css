@@ -1485,3 +1485,146 @@ button.pt-cell:hover { transform: scale(1.12); z-index: 2; filter: brightness(1.
   font-variant-numeric: tabular-nums;
   margin-bottom: var(--sp-2);
 }
+
+/* ---- where to watch ----------------------------------------------------- */
+.stream-groups { margin-top: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-4); }
+.stream-group h4 {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  margin-bottom: var(--sp-2);
+}
+.stream-providers { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.stream-provider {
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+a.stream-provider:hover { border-color: var(--accent-line); color: var(--accent-2); }
+
+/* ---- artist card -------------------------------------------------------- */
+.artist-name { font-size: var(--fs-2xl); margin-bottom: 2px; }
+.artist-meta { color: var(--text-3); font-size: var(--fs-sm); margin-bottom: var(--sp-4); }
+.artist-genres { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.genre-chip {
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-line);
+  color: var(--accent-4);
+  font-size: var(--fs-xs);
+  text-transform: capitalize;
+}
+.artist-section { margin-top: var(--sp-4); }
+.artist-section h4 {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  margin-bottom: var(--sp-3);
+}
+.album-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--sp-2);
+}
+.album {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.album:hover { border-color: var(--accent-line); }
+.album-title { color: var(--text-1); font-size: var(--fs-sm); font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.album-year { color: var(--text-4); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.artist-links { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.artist-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 13px;
+  border-radius: var(--r-md);
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+.artist-link:hover { background: var(--bg-4); color: var(--accent-2); }
+
+/* ---- recipe converter --------------------------------------------------- */
+.recipe-input {
+  width: 100%;
+  padding: var(--sp-3);
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: max(16px, var(--fs-sm));
+  line-height: 1.7;
+  resize: vertical;
+  margin-bottom: var(--sp-3);
+}
+.recipe-controls { display: flex; flex-direction: column; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.recipe-scale, .recipe-yield, .recipe-diets { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.recipe-scale label, .recipe-yield label { display: flex; align-items: center; gap: var(--sp-2); color: var(--text-3); font-size: var(--fs-sm); }
+.recipe-scale input, .recipe-yield input {
+  width: 70px; padding: 6px 8px; background: var(--bg-2);
+  border: 1px solid var(--border-2); border-radius: var(--r-sm);
+  color: var(--text-1); font-size: max(16px, var(--fs-sm));
+  font-variant-numeric: tabular-nums;
+}
+.recipe-output {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-3);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.recipe-line {
+  padding: 5px 0;
+  color: var(--text-1);
+  font-size: var(--fs-md);
+  border-bottom: 1px solid var(--border);
+}
+.recipe-line:last-child { border-bottom: none; }
+
+/* ---- meeting planner ---------------------------------------------------- */
+.answer.answer-wide .meet-tool { overflow-x: auto; }
+.meet-add { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.meet-add input {
+  flex: 1; max-width: 240px; padding: 8px var(--sp-3);
+  background: var(--bg-2); border: 1px solid var(--border-2);
+  border-radius: var(--r-md); color: var(--text-1); font-size: max(16px, var(--fs-sm));
+}
+.meet-grid { display: flex; flex-direction: column; gap: 3px; min-width: 620px; }
+.meet-row { display: grid; grid-template-columns: 120px repeat(24, 1fr); gap: 2px; align-items: center; }
+.meet-label { font-size: var(--fs-xs); color: var(--text-2); font-weight: 550; display: flex; align-items: center; gap: 4px; }
+.meet-label small { color: var(--text-4); }
+.meet-head .meet-hr { font-size: 10px; color: var(--text-4); text-align: center; }
+.meet-cell {
+  text-align: center;
+  font-size: 11px;
+  padding: 5px 0;
+  border-radius: 3px;
+  background: var(--bg-2);
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+.meet-cell.day { background: var(--bg-4); color: var(--text-2); }
+.meet-cell.overlap { background: var(--good); color: #052015; font-weight: 650; }
+.meet-rm {
+  color: var(--text-4); font-size: var(--fs-md); line-height: 1;
+  padding: 0 2px;
+}
+.meet-rm:hover { color: var(--bad); }

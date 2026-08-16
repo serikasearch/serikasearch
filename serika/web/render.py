@@ -27,7 +27,7 @@ __all__ = ["shell", "header", "searchbox", "result_cards", "image_cards",
            "pager", "related_block", "did_you_mean_block", "doc_sections",
            "doc_toc", "tool_cards", "bang_groups", "stat_cards", "icon"]
 
-ASSET_VERSION = "12"
+ASSET_VERSION = "13"
 
 WORDMARK = "serika<em>search</em>"
 
@@ -498,6 +498,8 @@ _ANSWER_KICKERS = {
     "translate": ("Phrasebook", "globe"),
     "luggage": ("Carry-on checker", "luggage"),
     "anime": ("Anime schedule", "tv"),
+    "stream": ("Where to watch", "tv"),
+    "artist": ("Artist", "tv"),
     "interactive": ("Tool", "spark"),
 }
 
@@ -892,6 +894,68 @@ def _luggage_widget() -> str:
     )
 
 
+def _recipe_widget() -> str:
+    import json as _json
+    from ..tools.recipe import SUBSTITUTIONS
+    diets = "".join(
+        f'<button type="button" class="iw-toggle" data-diet="{e(key)}" '
+        f'aria-pressed="false">{e(key.replace("-", " ").title())}</button>'
+        for key in SUBSTITUTIONS
+    )
+    subs = html.escape(_json.dumps(SUBSTITUTIONS), quote=True)
+    return (
+        f"<div class=\"recipe-tool\" data-recipe data-subs='{subs}'>"
+        '<textarea class="recipe-input" data-recipe-input rows="6" '
+        'aria-label="Ingredients, one per line" '
+        'placeholder="2 cups flour&#10;1 1/2 tsp baking powder&#10;'
+        '3 eggs&#10;1 cup milk&#10;100 g butter">2 cups flour\n'
+        '1 1/2 tsp baking powder\n3 eggs\n1 cup milk\n100 g butter</textarea>'
+        '<div class="recipe-controls">'
+        '<div class="recipe-scale">'
+        '<button class="btn btn-sm" data-recipe-preset="0.5">Halve</button>'
+        '<button class="btn btn-sm" data-recipe-preset="2">Double</button>'
+        '<button class="btn btn-sm" data-recipe-preset="3">Triple</button>'
+        '<label>Factor <input type="number" data-recipe-factor value="1" '
+        'min="0.1" max="20" step="0.25" aria-label="Scale factor"/></label>'
+        '</div>'
+        '<div class="recipe-yield">'
+        '<label>Or, servings <input type="number" data-recipe-from value="4" '
+        'min="1" max="99" aria-label="Original servings"/> → '
+        '<input type="number" data-recipe-to value="6" min="1" max="99" '
+        'aria-label="New servings"/></label></div>'
+        f'<div class="recipe-diets">{diets}</div>'
+        '</div>'
+        '<div class="recipe-output" data-recipe-output></div>'
+        '</div>'
+    )
+
+
+def _meeting_widget(zones: list[str]) -> str:
+    import json as _json
+    from ..tools.timely import meeting_columns, CITY_ZONES
+    if not zones:
+        zones = ["America/Los_Angeles", "America/New_York", "Europe/London",
+                 "Asia/Tokyo"]
+    columns = meeting_columns(zones)
+    # A datalist of city names so people can add zones by typing a city.
+    cities = sorted({c.title() for c in CITY_ZONES if len(c) > 2})
+    datalist = "".join(f'<option value="{e(c)}"></option>' for c in cities)
+    payload = html.escape(_json.dumps(columns), quote=True)
+    return (
+        f"<div class=\"meet-tool\" data-meeting data-columns='{payload}'>"
+        '<div class="meet-add">'
+        '<input type="text" list="meet-cities" data-meet-input '
+        'placeholder="Add a city…" aria-label="Add a city"/>'
+        f'<datalist id="meet-cities">{datalist}</datalist>'
+        '<button class="btn btn-sm" data-meet-add>Add</button></div>'
+        '<div class="meet-grid" data-meet-grid></div>'
+        '<p class="answer-detail">Green hours are daytime (about 8:00–20:00) '
+        'everywhere at once — the window where a call suits everyone. Times '
+        'follow each zone&rsquo;s current daylight-saving offset.</p>'
+        '</div>'
+    )
+
+
 def _color_picker_widget() -> str:
     return (
         '<div class="cp-tool" data-cp>'
@@ -915,6 +979,8 @@ _WIDGET_BUILDERS = {
     "color-picker": lambda bpm: _color_picker_widget(),
     "universe": lambda bpm: _universe_widget(),
     "luggage": lambda bpm: _luggage_widget(),
+    "recipe": lambda bpm: _recipe_widget(),
+    "meeting": lambda bpm: _meeting_widget([]),
 }
 
 _WIDGET_META = {
@@ -926,16 +992,23 @@ _WIDGET_META = {
     "color-picker": ("Colour picker", "color"),
     "universe": ("Scale of the Universe", "atom"),
     "luggage": ("Carry-on checker", "luggage"),
+    "recipe": ("Recipe converter", "receipt"),
+    "meeting": ("Meeting planner", "globe"),
 }
 
 
-def interactive_widget(widget: str, bpm: str = "", blurb: str = "") -> str:
+def interactive_widget(widget: str, bpm: str = "", blurb: str = "",
+                       data: dict | None = None) -> str:
     builder = _WIDGET_BUILDERS.get(widget)
     if builder is None:
         return ""
     label, icon_name = _WIDGET_META.get(widget, ("Tool", "spark"))
-    inner = builder(bpm)
-    mod = "answer-wide" if widget == "periodic-table" else ""
+    # The meeting planner needs its zone list; other builders ignore the extra.
+    if widget == "meeting":
+        inner = _meeting_widget((data or {}).get("zones") or [])
+    else:
+        inner = builder(bpm)
+    mod = "answer-wide" if widget in ("periodic-table", "meeting") else ""
     return (
         f'<section class="answer kind-interactive {mod}" '
         f'data-widget="{e(widget)}" aria-label="{e(label)}">'
@@ -993,6 +1066,105 @@ def _anime_body(answer) -> str:
     return f'<div class="anime-list">{"".join(rows)}</div>'
 
 
+_STREAM_ICONS = {"Stream": "tv", "Rent": "receipt", "Buy": "receipt",
+                 "Free": "play", "Free with ads": "play"}
+
+
+def _stream_body(answer) -> str:
+    data = answer.data
+    blocks = []
+    for group in data.get("groups", []):
+        chips = "".join(
+            (f'<a class="stream-provider" href="{e(o["url"])}" target="_blank" '
+             f'rel="noopener noreferrer">{e(o["provider"])}</a>' if o.get("url")
+             else f'<span class="stream-provider">{e(o["provider"])}</span>')
+            for o in group.get("offers", [])
+        )
+        blocks.append(
+            f'<div class="stream-group"><h4>{e(group["label"])}</h4>'
+            f'<div class="stream-providers">{chips}</div></div>'
+        )
+    network = ""
+    if data.get("network"):
+        site = data.get("official_site")
+        net = (f'<a href="{e(site)}" target="_blank" rel="noopener noreferrer">'
+               f'{e(data["network"])}</a>' if site else e(data["network"]))
+        network = (f'<div class="stream-group"><h4>Airs on</h4>'
+                   f'<div class="stream-providers">{net}</div></div>')
+    detail = (f'<div class="answer-detail">{e(answer.detail)}</div>'
+              if answer.detail else "")
+    if not blocks and not network:
+        blocks.append('<p class="answer-detail">No streaming options found for '
+                      'your region.</p>')
+    return (
+        f'<div class="answer-sub" style="font-family:var(--font)">'
+        f'{e(answer.subtitle)}</div>'
+        f'<div class="answer-value" style="font-size:var(--fs-xl)">'
+        f'{e(answer.title)}</div>{detail}'
+        f'<div class="stream-groups">{"".join(blocks)}{network}</div>'
+    )
+
+
+def artist_card(card) -> str:
+    """A MusicBrainz artist card: discography, genres, and links."""
+    if card is None:
+        return ""
+    facts = []
+    descriptor = card.life_summary
+    if card.disambiguation:
+        descriptor += f" · {card.disambiguation}"
+    years = ""
+    if card.begin:
+        years = card.begin[:4]
+        if card.ended and card.end:
+            years += f" – {card.end[:4]}"
+        elif card.kind == "Group" and not card.ended:
+            years += " – present"
+
+    genres = ""
+    if card.genres:
+        chips = "".join(
+            f'<a class="genre-chip" href="/search?q={quote_plus(g)}">{e(g)}</a>'
+            for g in card.genres
+        )
+        genres = f'<div class="artist-genres">{chips}</div>'
+
+    albums = ""
+    if card.albums:
+        items = "".join(
+            f'<a class="album" href="/search?q={quote_plus(a["title"] + " album")}">'
+            f'<span class="album-title">{e(a["title"])}</span>'
+            f'<span class="album-year">{e(a["year"])}</span></a>'
+            for a in card.albums
+        )
+        albums = (f'<div class="artist-section"><h4>Discography</h4>'
+                  f'<div class="album-grid">{items}</div></div>')
+
+    links = ""
+    if card.links:
+        items = "".join(
+            f'<a class="artist-link" href="{e(url)}" target="_blank" '
+            f'rel="noopener noreferrer">{e(label)}'
+            f'{icon("external", 12)}</a>'
+            for label, url in card.links
+        )
+        links = (f'<div class="artist-section"><h4>Listen &amp; tickets</h4>'
+                 f'<div class="artist-links">{items}</div></div>')
+
+    meta_bits = [b for b in (descriptor, years) if b]
+    return (
+        f'<section class="answer kind-artist" aria-label="Artist">'
+        f'<div class="answer-kicker">{icon("tv", 14)} Artist</div>'
+        f'<h2 class="artist-name">{e(card.name)}</h2>'
+        f'<p class="artist-meta">{e(" · ".join(meta_bits))}</p>'
+        f'{genres}{albums}{links}'
+        f'<div class="answer-actions"><span class="answer-source">'
+        f'Source: <a href="https://musicbrainz.org/artist/{e(card.mbid)}" '
+        f'target="_blank" rel="noopener noreferrer">MusicBrainz</a></span></div>'
+        f'</section>'
+    )
+
+
 def answer_card(answer, tool_link: bool = True) -> str:
     """Render an instant answer. Structure varies by kind; the shell is shared."""
     if answer is None:
@@ -1002,7 +1174,7 @@ def answer_card(answer, tool_link: bool = True) -> str:
     if answer.kind == "interactive":
         return interactive_widget(answer.data.get("widget", ""),
                                   answer.data.get("bpm", ""),
-                                  answer.subtitle)
+                                  answer.subtitle, answer.data)
 
     label, icon_name = _ANSWER_KICKERS.get(answer.kind, ("Answer", "spark"))
 
@@ -1024,6 +1196,8 @@ def answer_card(answer, tool_link: bool = True) -> str:
         body = _translate_body(answer)
     elif answer.kind == "anime":
         body = _anime_body(answer)
+    elif answer.kind == "stream":
+        body = _stream_body(answer)
     else:
         sub = (f'<div class="answer-sub">{e(answer.subtitle)}</div>'
                if answer.subtitle else "")

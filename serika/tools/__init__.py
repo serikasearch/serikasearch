@@ -22,8 +22,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from . import (anime, calc, convert, generate, live, luggage, qr, timely,
-               translate, units, universe, widgets)
+from . import (anime, calc, convert, generate, live, luggage, qr, recipe,
+               stream, timely, translate, units, universe, widgets)
 
 __all__ = ["Answer", "resolve", "TOOLS", "tool_by_slug"]
 
@@ -422,6 +422,48 @@ def _anime(query: str, ctx: dict) -> Optional[Answer]:
     )
 
 
+def _stream(query: str, ctx: dict) -> Optional[Answer]:
+    result = stream.parse_stream(query)
+    if result is None:
+        return None
+    return Answer(
+        kind="stream",
+        title=f"{result.title}" + (f" ({result.year})" if result.year else ""),
+        subtitle=f"Where to watch in {result.country_name}",
+        detail=result.description,
+        source="JustWatch", source_url="https://www.justwatch.com/",
+        tool="stream",
+        data={
+            "groups": [
+                {"label": label,
+                 "offers": [{"provider": o.provider, "url": o.url}
+                            for o in offers]}
+                for label, offers in stream.ordered_groups(result)
+            ],
+            "network": result.network,
+            "official_site": result.official_site,
+        },
+    )
+
+
+def _recipe(query: str, ctx: dict) -> Optional[Answer]:
+    if recipe.parse_recipe(query) is None:
+        return None
+    return Answer(kind="interactive", title="Recipe converter",
+                  subtitle="Scale a recipe up or down and swap ingredients.",
+                  tool="recipe", data={"widget": "recipe"})
+
+
+def _meeting(query: str, ctx: dict) -> Optional[Answer]:
+    result = timely.parse_meeting(query)
+    if result is None:
+        return None
+    return Answer(kind="interactive", title="Meeting planner",
+                  subtitle="Find the hours that work across time zones.",
+                  tool="meeting-planner",
+                  data={"widget": "meeting", "zones": result["zones"]})
+
+
 def _universe(query: str, ctx: dict) -> Optional[Answer]:
     if not re.match(
         r"^\s*(?:scale\s+of\s+(?:the\s+)?universe|universe\s+scale|"
@@ -495,8 +537,11 @@ _MATCHERS: tuple[Callable[[str, dict], Optional[Answer]], ...] = (
     _weather,
     _sun,
     _anime,
+    _stream,
     _luggage,
     _translate,
+    _recipe,
+    _meeting,
     _universe,
     _currency,
     _units,
@@ -654,6 +699,18 @@ TOOLS: tuple[ToolInfo, ...] = (
     ToolInfo("luggage", "Carry-on checker",
              "Cabin-bag size and weight limits for major airlines.",
              "Everyday", "carry on size ryanair", "luggage"),
+    ToolInfo("stream", "Where to watch",
+             "Streaming availability for films and shows, by country.",
+             "Media", "where to watch inception", "tv"),
+    ToolInfo("recipe", "Recipe converter",
+             "Scale ingredient lists and swap in dietary substitutions.",
+             "Everyday", "recipe converter", "receipt"),
+    ToolInfo("meeting-planner", "Meeting planner",
+             "Find the overlapping working hours across time zones.",
+             "Everyday", "meeting planner", "globe"),
+    ToolInfo("artist", "Artist & discography",
+             "Genres, active years, albums and links, from MusicBrainz.",
+             "Media", "taylor swift discography", "tv"),
 )
 
 _TOOLS_BY_SLUG = {tool.slug: tool for tool in TOOLS}
