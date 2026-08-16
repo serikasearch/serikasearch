@@ -658,6 +658,10 @@ class Handler(BaseHTTPRequestHandler):
         if slug in _INTERACTIVE_TOOL_SLUGS and not q:
             bpm = _str_param(params, "bpm", limit=4)
             answer_html = R.interactive_widget(_TOOL_WIDGET.get(slug, slug), bpm)
+        elif slug == "salary" and not q and not params.get("amount"):
+            country = tools_mod.tax.resolve_country(
+                _str_param(params, "country", "us", 20)) or "us"
+            answer_html = R.answer_card(tools_mod.tax_answer(0, country))
         elif slug == "artist" and q:
             # The artist card lives in the web layer, not the resolver.
             from ..tools import music
@@ -668,6 +672,19 @@ class Handler(BaseHTTPRequestHandler):
             answer_html = (R.artist_card(card) if card else
                            '<div class="notice bad">No artist found for '
                            f"“{html.escape(q)}”.</div>")
+        elif slug == "salary" and params.get("amount"):
+            # The salary form posts amount + country; compute via the shared
+            # helper so it renders identically to the query answer.
+            from ..tools import tax
+            country = tax.resolve_country(
+                _str_param(params, "country", "us", 20)) or "us"
+            try:
+                amount = float(re.sub(r"[^\d.]", "",
+                                      params.get("amount", ["0"])[0]) or 0)
+            except ValueError:
+                amount = 0.0
+            answer_html = R.answer_card(
+                tools_mod.tax_answer(min(amount, 1e12), country))
         elif q:
             answer_html = self._instant_answer(q)
             if not answer_html:
@@ -1370,6 +1387,10 @@ _TOOL_EXAMPLES = {
     "meeting-planner": ["meeting planner", "meeting planner tokyo london new york"],
     "artist": ["taylor swift discography", "ado", "drake albums",
                "joost klein"],
+    "salary": ["take home pay 60000", "salary calculator 80k uk",
+               "paycheck 50000 canada", "after tax 90000 australia"],
+    "flight": ["track flight BA2490", "track flight UAL123",
+               "where is flight AA100"],
 }
 
 
@@ -1386,10 +1407,11 @@ def serve(index_path: str = "serika.db", host: str = "127.0.0.1",
     live_tools.set_cache(index._redis)
     reference.set_cache(index._redis)
     from ..tools import anime as anime_tool, stream as stream_tool, \
-        music as music_tool
+        music as music_tool, flights as flights_tool
     anime_tool.set_cache(index._redis)
     stream_tool.set_cache(index._redis)
     music_tool.set_cache(index._redis)
+    flights_tool.set_cache(index._redis)
 
     Handler.index = index
     Handler.api_limiter = RateLimiter(limit=120, window=60)

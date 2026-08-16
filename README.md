@@ -114,6 +114,9 @@ Thirty-odd tools that answer in the results page. Most need no network at all.
 | `anime schedule` | Upcoming anime episodes (AniList) |
 | `where to watch inception` | Streaming availability by country (JustWatch) |
 | `taylor swift discography` | Artist genres, albums, links (MusicBrainz) |
+| `take home pay 60000 uk` | Income-tax & net-pay estimate, 7 countries |
+| `track flight BA2490` | Live aircraft position/altitude/speed (OpenSky) |
+| `I want to eat food in japanese` | Offline translation of any sentence |
 
 **Live data, all keyless and free.** Weather (Open-Meteo), currency (ECB via
 Frankfurter), anime (AniList GraphQL), where-to-watch (JustWatch, with TVmaze
@@ -129,13 +132,21 @@ all behaviour in `app.js` under a strict CSP): `stopwatch`, `metronome`,
 `scale of universe` — a logarithmic zoom from the Planck length to the
 observable universe.
 
-**A note on translation.** There is no translation *API* here and no bundled
-neural model — neither fits a dependency-free server that makes no external
-requests. Instead `serika/tools/translate.py` is a curated **phrasebook and
-word dictionary** across eight languages: it does exact-phrase lookup, falls
-back to a word-by-word gloss, and says plainly when the result is only literal.
-It handles what people actually type ("thank you in japanese", "how much in
-french"), not arbitrary prose.
+**A note on translation.** Fluent neural MT needs either an API or a
+multi-megabyte on-device model, neither of which fits a dependency-free server
+that makes no external requests. So `serika/tools/translate.py` is a bundled
+**bilingual dictionary** across eight languages: exact-phrase lookup for common
+phrases (fluent), and a word-by-word gloss for *any* other sentence, with the
+untranslated words marked. It's offline and it works on arbitrary input — it is
+literal, not fluent, and the UI says so.
+
+**Money & travel.** `serika/tools/tax.py` estimates net pay from bundled 2025
+tax brackets for the US, UK, Canada, Australia, Ireland, Germany and the
+Netherlands (an estimate — it excludes what genuinely can't be guessed, and
+says so). `serika/tools/flights.py` tracks any flight live from the OpenSky
+Network's keyless ADS-B feed — real position, altitude and speed, the
+genuinely-free slice of flight data (scheduled times and prices need a paid
+API).
 
 Full list at `/tools`; each has its own page.
 

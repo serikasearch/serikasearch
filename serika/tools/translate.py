@@ -117,38 +117,141 @@ _PHRASES: dict[str, tuple[str, ...]] = {
                         "买单 (mǎidān)"),
 }
 
-# Single-word dictionary for the word-by-word fallback.
+# A bundled bilingual dictionary of common English words, one row per word with
+# its equivalents in the order (es, fr, de, it, pt, nl, ja, zh). It is large
+# enough to gloss everyday sentences word-by-word; it is not a grammar engine,
+# so the result is literal, not fluent — the UI says so.
 _WORDS: dict[str, tuple[str, ...]] = {
-    "water": ("agua", "eau", "Wasser", "acqua", "água", "water",
-              "水 (mizu)", "水 (shuǐ)"),
-    "food": ("comida", "nourriture", "Essen", "cibo", "comida", "eten",
-             "食べ物 (tabemono)", "食物 (shíwù)"),
-    "coffee": ("café", "café", "Kaffee", "caffè", "café", "koffie",
-               "コーヒー (kōhī)", "咖啡 (kāfēi)"),
-    "beer": ("cerveza", "bière", "Bier", "birra", "cerveja", "bier",
-             "ビール (bīru)", "啤酒 (píjiǔ)"),
+    # pronouns
+    "i": ("yo", "je", "ich", "io", "eu", "ik", "私 (watashi)", "我 (wǒ)"),
+    "you": ("tú", "tu", "du", "tu", "você", "jij", "あなた (anata)", "你 (nǐ)"),
+    "he": ("él", "il", "er", "lui", "ele", "hij", "彼 (kare)", "他 (tā)"),
+    "she": ("ella", "elle", "sie", "lei", "ela", "zij", "彼女 (kanojo)", "她 (tā)"),
+    "we": ("nosotros", "nous", "wir", "noi", "nós", "wij", "私たち (watashitachi)", "我们 (wǒmen)"),
+    "they": ("ellos", "ils", "sie", "loro", "eles", "zij", "彼ら (karera)", "他们 (tāmen)"),
+    "it": ("eso", "ça", "es", "esso", "isso", "het", "それ (sore)", "它 (tā)"),
+    "me": ("mí", "moi", "mich", "me", "me", "mij", "私 (watashi)", "我 (wǒ)"),
+    "my": ("mi", "mon", "mein", "mio", "meu", "mijn", "私の (watashi no)", "我的 (wǒ de)"),
+    "your": ("tu", "ton", "dein", "tuo", "seu", "jouw", "あなたの (anata no)", "你的 (nǐ de)"),
+    "this": ("este", "ce", "dieser", "questo", "este", "dit", "これ (kore)", "这 (zhè)"),
+    "that": ("ese", "ce", "das", "quello", "aquele", "dat", "あれ (are)", "那 (nà)"),
+    # question words
+    "what": ("qué", "quoi", "was", "cosa", "o que", "wat", "何 (nani)", "什么 (shénme)"),
+    "who": ("quién", "qui", "wer", "chi", "quem", "wie", "誰 (dare)", "谁 (shéi)"),
+    "where": ("dónde", "où", "wo", "dove", "onde", "waar", "どこ (doko)", "哪里 (nǎlǐ)"),
+    "when": ("cuándo", "quand", "wann", "quando", "quando", "wanneer", "いつ (itsu)", "什么时候 (shénme shíhou)"),
+    "why": ("por qué", "pourquoi", "warum", "perché", "por que", "waarom", "なぜ (naze)", "为什么 (wèishénme)"),
+    "how": ("cómo", "comment", "wie", "come", "como", "hoe", "どう (dō)", "怎么 (zěnme)"),
+    "which": ("cuál", "quel", "welcher", "quale", "qual", "welke", "どれ (dore)", "哪个 (nǎge)"),
+    # common verbs
+    "is": ("es", "est", "ist", "è", "é", "is", "です (desu)", "是 (shì)"),
+    "are": ("son", "sont", "sind", "sono", "são", "zijn", "です (desu)", "是 (shì)"),
+    "am": ("soy", "suis", "bin", "sono", "sou", "ben", "です (desu)", "是 (shì)"),
+    "was": ("era", "était", "war", "era", "era", "was", "でした (deshita)", "是 (shì)"),
+    "be": ("ser", "être", "sein", "essere", "ser", "zijn", "ある (aru)", "是 (shì)"),
+    "have": ("tener", "avoir", "haben", "avere", "ter", "hebben", "持つ (motsu)", "有 (yǒu)"),
+    "has": ("tiene", "a", "hat", "ha", "tem", "heeft", "持つ (motsu)", "有 (yǒu)"),
+    "do": ("hacer", "faire", "tun", "fare", "fazer", "doen", "する (suru)", "做 (zuò)"),
+    "go": ("ir", "aller", "gehen", "andare", "ir", "gaan", "行く (iku)", "去 (qù)"),
+    "come": ("venir", "venir", "kommen", "venire", "vir", "komen", "来る (kuru)", "来 (lái)"),
+    "want": ("querer", "vouloir", "wollen", "volere", "querer", "willen", "欲しい (hoshii)", "要 (yào)"),
+    "need": ("necesitar", "avoir besoin", "brauchen", "aver bisogno", "precisar", "nodig hebben", "必要 (hitsuyō)", "需要 (xūyào)"),
+    "like": ("gustar", "aimer", "mögen", "piacere", "gostar", "houden van", "好き (suki)", "喜欢 (xǐhuan)"),
+    "know": ("saber", "savoir", "wissen", "sapere", "saber", "weten", "知る (shiru)", "知道 (zhīdào)"),
+    "see": ("ver", "voir", "sehen", "vedere", "ver", "zien", "見る (miru)", "看 (kàn)"),
+    "eat": ("comer", "manger", "essen", "mangiare", "comer", "eten", "食べる (taberu)", "吃 (chī)"),
+    "drink": ("beber", "boire", "trinken", "bere", "beber", "drinken", "飲む (nomu)", "喝 (hē)"),
+    "speak": ("hablar", "parler", "sprechen", "parlare", "falar", "spreken", "話す (hanasu)", "说 (shuō)"),
+    "buy": ("comprar", "acheter", "kaufen", "comprare", "comprar", "kopen", "買う (kau)", "买 (mǎi)"),
+    "can": ("poder", "pouvoir", "können", "potere", "poder", "kunnen", "できる (dekiru)", "能 (néng)"),
+    "make": ("hacer", "faire", "machen", "fare", "fazer", "maken", "作る (tsukuru)", "做 (zuò)"),
+    "find": ("encontrar", "trouver", "finden", "trovare", "encontrar", "vinden", "見つける (mitsukeru)", "找 (zhǎo)"),
+    "help": ("ayudar", "aider", "helfen", "aiutare", "ajudar", "helpen", "助ける (tasukeru)", "帮助 (bāngzhù)"),
+    "give": ("dar", "donner", "geben", "dare", "dar", "geven", "あげる (ageru)", "给 (gěi)"),
+    "take": ("tomar", "prendre", "nehmen", "prendere", "tomar", "nemen", "取る (toru)", "拿 (ná)"),
+    "love": ("amar", "aimer", "lieben", "amare", "amar", "houden van", "愛する (aisuru)", "爱 (ài)"),
+    # articles / conjunctions / prepositions
+    "the": ("el", "le", "der", "il", "o", "de", "", "这"),
+    "a": ("un", "un", "ein", "un", "um", "een", "", "一"),
+    "and": ("y", "et", "und", "e", "e", "en", "と (to)", "和 (hé)"),
+    "or": ("o", "ou", "oder", "o", "ou", "of", "または (mataha)", "或 (huò)"),
+    "but": ("pero", "mais", "aber", "ma", "mas", "maar", "でも (demo)", "但是 (dànshì)"),
+    "not": ("no", "ne pas", "nicht", "non", "não", "niet", "ない (nai)", "不 (bù)"),
+    "with": ("con", "avec", "mit", "con", "com", "met", "と (to)", "和 (hé)"),
+    "without": ("sin", "sans", "ohne", "senza", "sem", "zonder", "なしで (nashi de)", "没有 (méiyǒu)"),
+    "for": ("para", "pour", "für", "per", "para", "voor", "のために (no tame ni)", "为 (wèi)"),
+    "to": ("a", "à", "zu", "a", "para", "naar", "へ (e)", "到 (dào)"),
+    "from": ("de", "de", "von", "da", "de", "van", "から (kara)", "从 (cóng)"),
+    "in": ("en", "dans", "in", "in", "em", "in", "に (ni)", "在 (zài)"),
+    "on": ("en", "sur", "auf", "su", "em", "op", "の上 (no ue)", "在...上 (zài...shàng)"),
+    "at": ("en", "à", "an", "a", "em", "bij", "で (de)", "在 (zài)"),
+    "of": ("de", "de", "von", "di", "de", "van", "の (no)", "的 (de)"),
+    "very": ("muy", "très", "sehr", "molto", "muito", "zeer", "とても (totemo)", "很 (hěn)"),
+    "here": ("aquí", "ici", "hier", "qui", "aqui", "hier", "ここ (koko)", "这里 (zhèlǐ)"),
+    "there": ("allí", "là", "dort", "lì", "lá", "daar", "そこ (soko)", "那里 (nàlǐ)"),
+    "now": ("ahora", "maintenant", "jetzt", "ora", "agora", "nu", "今 (ima)", "现在 (xiànzài)"),
+    "please": ("por favor", "s'il vous plaît", "bitte", "per favore", "por favor", "alsjeblieft", "お願い (onegai)", "请 (qǐng)"),
+    "yes": ("sí", "oui", "ja", "sì", "sim", "ja", "はい (hai)", "是 (shì)"),
+    "no": ("no", "non", "nein", "no", "não", "nee", "いいえ (iie)", "不 (bù)"),
+    # people / places
+    "friend": ("amigo", "ami", "Freund", "amico", "amigo", "vriend", "友達 (tomodachi)", "朋友 (péngyǒu)"),
+    "man": ("hombre", "homme", "Mann", "uomo", "homem", "man", "男 (otoko)", "男人 (nánrén)"),
+    "woman": ("mujer", "femme", "Frau", "donna", "mulher", "vrouw", "女 (onna)", "女人 (nǚrén)"),
+    "child": ("niño", "enfant", "Kind", "bambino", "criança", "kind", "子供 (kodomo)", "孩子 (háizi)"),
+    "family": ("familia", "famille", "Familie", "famiglia", "família", "familie", "家族 (kazoku)", "家庭 (jiātíng)"),
+    "house": ("casa", "maison", "Haus", "casa", "casa", "huis", "家 (ie)", "房子 (fángzi)"),
+    "home": ("casa", "maison", "Zuhause", "casa", "casa", "thuis", "家 (ie)", "家 (jiā)"),
+    "city": ("ciudad", "ville", "Stadt", "città", "cidade", "stad", "都市 (toshi)", "城市 (chéngshì)"),
+    "country": ("país", "pays", "Land", "paese", "país", "land", "国 (kuni)", "国家 (guójiā)"),
+    "street": ("calle", "rue", "Straße", "strada", "rua", "straat", "通り (tōri)", "街 (jiē)"),
+    "hotel": ("hotel", "hôtel", "Hotel", "albergo", "hotel", "hotel", "ホテル (hoteru)", "酒店 (jiǔdiàn)"),
+    "airport": ("aeropuerto", "aéroport", "Flughafen", "aeroporto", "aeroporto", "luchthaven", "空港 (kūkō)", "机场 (jīchǎng)"),
+    "station": ("estación", "gare", "Bahnhof", "stazione", "estação", "station", "駅 (eki)", "车站 (chēzhàn)"),
+    "bathroom": ("baño", "toilettes", "Toilette", "bagno", "banheiro", "toilet", "トイレ (toire)", "洗手间 (xǐshǒujiān)"),
+    "restaurant": ("restaurante", "restaurant", "Restaurant", "ristorante", "restaurante", "restaurant", "レストラン (resutoran)", "餐厅 (cāntīng)"),
+    # things
+    "water": ("agua", "eau", "Wasser", "acqua", "água", "water", "水 (mizu)", "水 (shuǐ)"),
+    "food": ("comida", "nourriture", "Essen", "cibo", "comida", "eten", "食べ物 (tabemono)", "食物 (shíwù)"),
+    "coffee": ("café", "café", "Kaffee", "caffè", "café", "koffie", "コーヒー (kōhī)", "咖啡 (kāfēi)"),
+    "tea": ("té", "thé", "Tee", "tè", "chá", "thee", "お茶 (ocha)", "茶 (chá)"),
+    "beer": ("cerveza", "bière", "Bier", "birra", "cerveja", "bier", "ビール (bīru)", "啤酒 (píjiǔ)"),
+    "wine": ("vino", "vin", "Wein", "vino", "vinho", "wijn", "ワイン (wain)", "葡萄酒 (pútáojiǔ)"),
+    "bread": ("pan", "pain", "Brot", "pane", "pão", "brood", "パン (pan)", "面包 (miànbāo)"),
+    "money": ("dinero", "argent", "Geld", "denaro", "dinheiro", "geld", "お金 (okane)", "钱 (qián)"),
+    "time": ("tiempo", "temps", "Zeit", "tempo", "tempo", "tijd", "時間 (jikan)", "时间 (shíjiān)"),
+    "day": ("día", "jour", "Tag", "giorno", "dia", "dag", "日 (hi)", "天 (tiān)"),
+    "car": ("coche", "voiture", "Auto", "auto", "carro", "auto", "車 (kuruma)", "车 (chē)"),
+    "book": ("libro", "livre", "Buch", "libro", "livro", "boek", "本 (hon)", "书 (shū)"),
+    "phone": ("teléfono", "téléphone", "Telefon", "telefono", "telefone", "telefoon", "電話 (denwa)", "电话 (diànhuà)"),
+    "world": ("mundo", "monde", "Welt", "mondo", "mundo", "wereld", "世界 (sekai)", "世界 (shìjiè)"),
+    "name": ("nombre", "nom", "Name", "nome", "nome", "naam", "名前 (namae)", "名字 (míngzi)"),
+    "cat": ("gato", "chat", "Katze", "gatto", "gato", "kat", "猫 (neko)", "猫 (māo)"),
+    "dog": ("perro", "chien", "Hund", "cane", "cachorro", "hond", "犬 (inu)", "狗 (gǒu)"),
+    # adjectives
+    "good": ("bueno", "bon", "gut", "buono", "bom", "goed", "良い (yoi)", "好 (hǎo)"),
+    "bad": ("malo", "mauvais", "schlecht", "cattivo", "mau", "slecht", "悪い (warui)", "坏 (huài)"),
+    "big": ("grande", "grand", "groß", "grande", "grande", "groot", "大きい (ōkii)", "大 (dà)"),
+    "small": ("pequeño", "petit", "klein", "piccolo", "pequeno", "klein", "小さい (chiisai)", "小 (xiǎo)"),
+    "hot": ("caliente", "chaud", "heiß", "caldo", "quente", "heet", "熱い (atsui)", "热 (rè)"),
+    "cold": ("frío", "froid", "kalt", "freddo", "frio", "koud", "冷たい (tsumetai)", "冷 (lěng)"),
+    "new": ("nuevo", "nouveau", "neu", "nuovo", "novo", "nieuw", "新しい (atarashii)", "新 (xīn)"),
+    "old": ("viejo", "vieux", "alt", "vecchio", "velho", "oud", "古い (furui)", "老 (lǎo)"),
+    "beautiful": ("hermoso", "beau", "schön", "bello", "bonito", "mooi", "美しい (utsukushii)", "美丽 (měilì)"),
+    "happy": ("feliz", "heureux", "glücklich", "felice", "feliz", "blij", "幸せ (shiawase)", "快乐 (kuàilè)"),
+    "great": ("genial", "génial", "großartig", "fantastico", "ótimo", "geweldig", "素晴らしい (subarashii)", "很棒 (hěn bàng)"),
+    "much": ("mucho", "beaucoup", "viel", "molto", "muito", "veel", "たくさん (takusan)", "很多 (hěnduō)"),
+    "many": ("muchos", "beaucoup", "viele", "molti", "muitos", "veel", "たくさん (takusan)", "很多 (hěnduō)"),
+    # numbers
     "one": ("uno", "un", "eins", "uno", "um", "een", "一 (ichi)", "一 (yī)"),
     "two": ("dos", "deux", "zwei", "due", "dois", "twee", "二 (ni)", "二 (èr)"),
-    "three": ("tres", "trois", "drei", "tre", "três", "drie", "三 (san)",
-              "三 (sān)"),
-    "cat": ("gato", "chat", "Katze", "gatto", "gato", "kat", "猫 (neko)",
-            "猫 (māo)"),
-    "dog": ("perro", "chien", "Hund", "cane", "cachorro", "hond", "犬 (inu)",
-            "狗 (gǒu)"),
-    "friend": ("amigo", "ami", "Freund", "amico", "amigo", "vriend",
-               "友達 (tomodachi)", "朋友 (péngyǒu)"),
-    "love": ("amor", "amour", "Liebe", "amore", "amor", "liefde",
-             "愛 (ai)", "爱 (ài)"),
-    "good": ("bueno", "bon", "gut", "buono", "bom", "goed", "良い (yoi)",
-             "好 (hǎo)"),
-    "big": ("grande", "grand", "groß", "grande", "grande", "groot",
-            "大きい (ōkii)", "大 (dà)"),
-    "small": ("pequeño", "petit", "klein", "piccolo", "pequeno", "klein",
-              "小さい (chiisai)", "小 (xiǎo)"),
-    "today": ("hoy", "aujourd'hui", "heute", "oggi", "hoje", "vandaag",
-              "今日 (kyō)", "今天 (jīntiān)"),
-    "tomorrow": ("mañana", "demain", "morgen", "domani", "amanhã", "morgen",
-                 "明日 (ashita)", "明天 (míngtiān)"),
+    "three": ("tres", "trois", "drei", "tre", "três", "drie", "三 (san)", "三 (sān)"),
+    "four": ("cuatro", "quatre", "vier", "quattro", "quatro", "vier", "四 (yon)", "四 (sì)"),
+    "five": ("cinco", "cinq", "fünf", "cinque", "cinco", "vijf", "五 (go)", "五 (wǔ)"),
+    "ten": ("diez", "dix", "zehn", "dieci", "dez", "tien", "十 (jū)", "十 (shí)"),
+    # time words
+    "today": ("hoy", "aujourd'hui", "heute", "oggi", "hoje", "vandaag", "今日 (kyō)", "今天 (jīntiān)"),
+    "tomorrow": ("mañana", "demain", "morgen", "domani", "amanhã", "morgen", "明日 (ashita)", "明天 (míngtiān)"),
+    "yesterday": ("ayer", "hier", "gestern", "ieri", "ontem", "gisteren", "昨日 (kinō)", "昨天 (zuótiān)"),
 }
 
 _COL = {code: i for i, code in enumerate(_LANGS)}
@@ -219,28 +322,39 @@ def parse_translate(query: str) -> Translation | None:
             literal=False, per_word=[],
         )
 
-    # 2) Word-by-word gloss. Only worth returning if we actually know some of
-    #    the words — otherwise fall through to normal search results.
-    words = key.split()
-    if len(words) > 8:
+    # 2) Word-by-word gloss over the whole sentence. Any word we don't have is
+    #    left as-is; the caller shows which words were translated so the reader
+    #    knows this is a literal rendering, not fluent output.
+    words = re.findall(r"[\w']+|[^\w\s]", phrase_raw.strip())
+    if len([w for w in words if w.isalpha()]) > 40:
         return None
-    per_word: list[tuple[str, str]] = []
+    per_word: list[tuple[str, str, bool]] = []
     known = 0
-    for word in words:
-        if word in _PHRASES:
-            per_word.append((word, _PHRASES[word][column]))
+    for token in words:
+        low = token.lower()
+        if not token.isalpha():
+            per_word.append((token, token, True))    # punctuation, keep as-is
+            continue
+        if low in _PHRASES:
+            per_word.append((token, _PHRASES[low][column], True))
             known += 1
-        elif word in _WORDS:
-            per_word.append((word, _WORDS[word][column]))
-            known += 1
+        elif low in _WORDS:
+            translated = _WORDS[low][column]
+            # Some cells are intentionally empty (e.g. Japanese has no article
+            # for "the"); drop those from the output rather than show a gap.
+            per_word.append((token, translated or "", bool(translated)))
+            if translated:
+                known += 1
         else:
-            per_word.append((word, word))
-    if known == 0 or known < len(words) / 2:
+            per_word.append((token, token, False))    # unknown, pass through
+    if known == 0:
         return None
 
-    glossed = " ".join(t for _, t in per_word)
+    # Assemble, skipping the empty (dropped-article) tokens.
+    glossed = " ".join(t for _, t, _ in per_word if t).strip()
+    glossed = re.sub(r"\s+([,.!?;:])", r"\1", glossed)
     return Translation(
         source=phrase_raw.strip(), target_code=code, target_name=name,
         target_endonym=endonym, result=glossed, literal=True,
-        per_word=per_word,
+        per_word=[(s, t) for s, t, matched in per_word if s.isalpha()],
     )

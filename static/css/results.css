@@ -1628,3 +1628,72 @@ a.stream-provider:hover { border-color: var(--accent-line); color: var(--accent-
   padding: 0 2px;
 }
 .meet-rm:hover { color: var(--bad); }
+
+/* ---- take-home pay ------------------------------------------------------- */
+.tax-bar {
+  height: 12px;
+  border-radius: var(--r-pill);
+  background: var(--bad);
+  overflow: hidden;
+  margin: var(--sp-4) 0;
+}
+.tax-bar-net {
+  display: block;
+  height: 100%;
+  background: var(--good);
+  border-radius: var(--r-pill);
+  transition: width var(--t-slow) var(--ease-out);
+}
+.tax-periods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+.tax-period {
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-3);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  text-align: center;
+}
+.tp-label { color: var(--text-4); font-size: var(--fs-xs); }
+.tp-value {
+  color: var(--text-1);
+  font-weight: 650;
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+}
+.tax-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.tax-form input, .tax-form select {
+  padding: 8px var(--sp-3);
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  color: var(--text-1);
+  font-size: max(16px, var(--fs-sm));
+}
+.tax-form input { flex: 1; min-width: 120px; }
+
+/* ---- flight tracker ----------------------------------------------------- */
+.flight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-3);
+}
+.flight-title { min-width: 0; }
+.flight-compass { flex: none; }
+
+/* ---- translation per-word ----------------------------------------------- */
+.tr-word.unknown { opacity: 0.55; border-style: dashed; }
