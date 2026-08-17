@@ -300,6 +300,17 @@ class Index:
     _TITLE_BOOST = 2.0
     _URL_BOOST = 1.0
     _BODY_ONLY_PENALTY = 1.5
+    # Domain/navigational boosts. When a query word is the site's own name we
+    # want that site to rise above pages that merely mention it in their title:
+    # "reddit" should surface reddit.com over "10 best reddit threads" on some
+    # blog — while still leaving those pages mixed into the list, not hidden.
+    #   _DOMAIN_BOOST      — a query word appears as a dot-segment of the host
+    #                        (sub-domain or registrable label): "old.reddit.com".
+    #   _DOMAIN_ROOT_BOOST — the host *starts* with that word (the canonical
+    #                        domain or its www): "reddit.com" / "www.reddit.com".
+    #                        Added on top of _DOMAIN_BOOST, so the real site wins.
+    _DOMAIN_BOOST = 2.5
+    _DOMAIN_ROOT_BOOST = 2.5
 
     # ts_rank_cd weights: [D, C, B, A] — A=title=1.0, B=desc=0.4, C=body=0.1, D=url=0.05
     _RANK_WEIGHTS = "{0.05, 0.1, 0.4, 1.0}"
@@ -1196,6 +1207,23 @@ class Index:
         ) if query_words else "FALSE"
         url_params = [f"%{w}%" for w in query_words]
 
+        # Domain-match flags. A query word that names the site (its host label)
+        # is a much stronger signal than the same word buried in a title, so we
+        # score it separately. Only words long enough to be a real name count —
+        # a two-letter token like "to" or "is" should not promote every ".to"
+        # domain. Patterns are POSIX regexes matched with ~* (case-insensitive).
+        domain_words = [w for w in query_words if len(w) >= 3]
+        if domain_words:
+            labels = "|".join(re.escape(w) for w in domain_words)
+            has_domain_sql = "CASE WHEN c.host ~* %s THEN 1 ELSE 0 END"
+            has_domain_root_sql = "CASE WHEN c.host ~* %s THEN 1 ELSE 0 END"
+            domain_params = [rf"(^|\.)({labels})\.",
+                             rf"^(www\.)?({labels})\."]
+        else:
+            has_domain_sql = "0"
+            has_domain_root_sql = "0"
+            domain_params = []
+
         # Ranking is two-phase so a broad query never detoasts more than it must:
         #
         #   cand  — the matching documents, capped at _RANK_CANDIDATE_CAP. Only
@@ -1214,13 +1242,15 @@ class Index:
             "(r.rank"
             f"  + {self._TITLE_BOOST} * r.has_title"
             f"  + {self._URL_BOOST} * r.has_url"
+            f"  + {self._DOMAIN_BOOST} * r.has_domain"
+            f"  + {self._DOMAIN_ROOT_BOOST} * r.has_domain_root"
             f"  - {self._BODY_ONLY_PENALTY} * (1 - r.has_title)"
             f"  + {self._RICHNESS_WEIGHT} * LEAST(GREATEST(r.word_count / 5000.0, 0), 1.0)"
             f"  + {self._RECENCY_WEIGHT} * GREATEST(0.0, 1.0 - (%s - r.fetched_at) / {self._RECENCY_SPAN}))"
         )
         rank_sql = (
             "WITH cand AS ("
-            " SELECT d.id, d.title, d.url, d.word_count, d.fetched_at, d.tsv"
+            " SELECT d.id, d.title, d.url, d.host, d.word_count, d.fetched_at, d.tsv"
             " FROM documents d"
             " WHERE d.tsv @@ websearch_to_tsquery('english', %s)"
             + site_sql + intitle_sql + inurl_sql + fresh_sql +
@@ -1230,11 +1260,14 @@ class Index:
             f"  ts_rank_cd(%s, c.tsv, websearch_to_tsquery('english', %s)) AS rank,"
             f"  CASE WHEN ({title_ilike.replace('d.title', 'c.title')}) THEN 1 ELSE 0 END AS has_title,"
             f"  CASE WHEN ({url_ilike.replace('d.url', 'c.url')}) THEN 1 ELSE 0 END AS has_url,"
+            f"  {has_domain_sql} AS has_domain,"
+            f"  {has_domain_root_sql} AS has_domain_root,"
             "  c.word_count, c.fetched_at"
             " FROM cand c"
             ")"
             " SELECT d.id, d.url, d.title, d.description, d.host, d.body,"
-            " d.word_count, d.fetched_at, r.rank, r.has_title, r.has_url"
+            " d.word_count, d.fetched_at, r.rank, r.has_title, r.has_url,"
+            " r.has_domain, r.has_domain_root"
             " FROM (SELECT * FROM ranked r"
             f"  ORDER BY {score_expr} DESC LIMIT %s OFFSET %s) r"
             " JOIN documents d ON d.id = r.id"
@@ -1245,6 +1278,7 @@ class Index:
                         + fresh_params
                         + [self._RANK_WEIGHTS, fts]
                         + title_params + url_params
+                        + domain_params
                         + [now, limit, offset]
                         + [now])
         conn = self._get_conn()
@@ -1267,10 +1301,14 @@ class Index:
             rank = float(r[8] or 0)
             has_title = int(r[9] or 0)
             has_url = int(r[10] or 0)
+            has_domain = int(r[11] or 0)
+            has_domain_root = int(r[12] or 0)
             score = (
                 rank
                 + self._TITLE_BOOST * has_title
                 + self._URL_BOOST * has_url
+                + self._DOMAIN_BOOST * has_domain
+                + self._DOMAIN_ROOT_BOOST * has_domain_root
                 - self._BODY_ONLY_PENALTY * (1 - has_title)
                 + self._RICHNESS_WEIGHT * min(max((r[6] or 0) / 5000.0, 0), 1.0)
                 + self._RECENCY_WEIGHT * max(0.0, 1.0 - (now - (r[7] or 0)) / self._RECENCY_SPAN)
