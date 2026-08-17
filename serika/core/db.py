@@ -338,8 +338,8 @@ class Index:
         # containers (web + crawler) against the same database. Keeping the
         # ceiling modest leaves room for both, for migrations, and for a psql
         # session when something goes wrong.
-        min_conn = max(1, int(os.environ.get("DB_POOL_MIN", "2")))
-        max_conn = max(min_conn, int(os.environ.get("DB_POOL_MAX", "16")))
+        min_conn = max(1, int(os.environ.get("DB_POOL_MIN", "4")))
+        max_conn = max(min_conn, int(os.environ.get("DB_POOL_MAX", "40")))
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             min_conn, max_conn, db_url,
         )
@@ -491,6 +491,51 @@ class Index:
                      word_count, time.time(), status),
                 )
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def upsert_documents_batch(self, docs: list[dict]) -> int:
+        """Batch-insert multiple documents in one transaction.
+
+        Each dict has: url, title, description, body, host, lang, category, status.
+        Returns number of rows upserted.
+        """
+        if not docs:
+            return 0
+        now = time.time()
+        rows = [
+            (d["url"], d["title"], d["description"], d["body"], d["host"],
+             d.get("lang", ""), d.get("category", ""),
+             len(d["body"].split()), now, d.get("status", 200))
+            for d in docs
+        ]
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                # psycopg2.extras.execute_values does a single multi-row INSERT.
+                from psycopg2.extras import execute_values
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO documents (url, title, description, body, host,
+                                           lang, category, word_count, fetched_at, status)
+                    VALUES %s
+                    ON CONFLICT(url) DO UPDATE SET
+                        title=EXCLUDED.title,
+                        description=EXCLUDED.description,
+                        body=EXCLUDED.body,
+                        host=EXCLUDED.host,
+                        lang=EXCLUDED.lang,
+                        category=COALESCE(NULLIF(EXCLUDED.category,''), documents.category),
+                        word_count=EXCLUDED.word_count,
+                        fetched_at=EXCLUDED.fetched_at,
+                        status=EXCLUDED.status
+                    """,
+                    rows,
+                )
+            conn.commit()
+            return len(rows)
         except Exception:
             conn.rollback()
             raise
@@ -1023,12 +1068,16 @@ class Index:
         """Enqueue many URLs at once."""
         if not self._redis or not urls:
             return
-        # Check which URLs are already crawled (outside pipeline for real results).
-        pipe = self._redis.pipeline()
-        for u in urls:
-            pipe.sismember("crawled", u)
-        already = pipe.execute()
-        # Add only uncrawled URLs to the frontier.
+        # Single SMISMEMBER call instead of N pipeline SISMEMBER round-trips.
+        # Falls back to pipeline for older Redis versions.
+        try:
+            already = self._redis.smismember("crawled", urls)
+        except Exception:
+            pipe = self._redis.pipeline()
+            for u in urls:
+                pipe.sismember("crawled", u)
+            already = pipe.execute()
+        # Add only uncrawled URLs to the frontier in one pipeline.
         pipe = self._redis.pipeline()
         for u, done in zip(urls, already):
             if not done:
@@ -1055,60 +1104,28 @@ class Index:
         return url, depth, category
 
     def claim_batch(self, count: int = 10) -> list[tuple[str, int, str]]:
-        """Claim multiple frontier URLs, spreading across hosts for diversity.
+        """Claim multiple frontier URLs. Fast: one ZPOPMIN, one pipeline.
 
-        Instead of ZPOPMIN (which grabs the N lowest-scored URLs — often all
-        from the same host), this samples from a random window of the frontier
-        and deduplicates by host so each batch covers many sites at once.
+        Host diversity is handled naturally by the per-host robots lock —
+        even if a batch is all one host, workers queue on that host's lock
+        and process sequentially while other workers grab from elsewhere.
         """
         if not self._redis:
             return []
         total = self._redis.zcard("frontier")
         if total == 0:
             return []
-        # Sample a random window of the sorted set. Taking `count * 8` entries
-        # from a random offset gives enough variety to pick one per host.
-        window = min(total, count * 8)
-        if total <= window:
-            # Frontier is small — just pop the first N.
-            results = self._redis.zpopmin("frontier", count)
-        else:
-            import random
-            start = random.randint(0, total - window)
-            candidates = self._redis.zrange("frontier", start, start + window - 1, withscores=True)
-            if not candidates:
-                return []
-            # Pick one URL per host, up to `count` total.
-            seen_hosts: set[str] = set()
-            chosen: list[tuple[str, float]] = []
-            for url, score in candidates:
-                host = urlsplit(url).netloc if isinstance(url, str) else ""
-                if host in seen_hosts:
-                    continue
-                seen_hosts.add(host)
-                chosen.append((url, score))
-                if len(chosen) >= count:
-                    break
-            if not chosen:
-                # All from the same host — just pop them.
-                results = self._redis.zpopmin("frontier", count)
-            else:
-                # Remove the chosen URLs from the frontier.
-                pipe = self._redis.pipeline()
-                for url, _ in chosen:
-                    pipe.zrem("frontier", url)
-                pipe.execute()
-                results = chosen
-        if not results:
+        raw = self._redis.zpopmin("frontier", min(total, count))
+        if not raw:
             return []
         out = []
         pipe = self._redis.pipeline()
-        for url, depth in results:
+        for url, depth in raw:
             pipe.hgetall(f"frontier:meta:{url}")
             pipe.delete(f"frontier:meta:{url}")
             pipe.sadd("crawled", url)
         pipe_responses = pipe.execute()
-        for i, (url, depth) in enumerate(results):
+        for i, (url, depth) in enumerate(raw):
             meta = pipe_responses[i * 3] if i * 3 < len(pipe_responses) else {}
             category = meta.get("category", "") if meta else ""
             out.append((url, int(depth), category))
