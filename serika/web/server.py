@@ -458,7 +458,8 @@ class Handler(BaseHTTPRequestHandler):
         # "weather in tokyo" from showing the forecast beside a Tokyo article.
         subject_ok = (parsed.fts and not parsed.has_operators
                       and page == 1 and not has_instant)
-        kcard = reference.build_card(self.index, q) if subject_ok else None
+        kcard = (reference.build_card(self.index, q, results=results)
+                 if subject_ok else None)
 
         # A musician gets one combined panel: the MusicBrainz card with the
         # encyclopedia portrait and summary folded in. When the query narrows

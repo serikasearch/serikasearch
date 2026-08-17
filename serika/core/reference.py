@@ -36,7 +36,10 @@ from .db import Index
 __all__ = ["KnowledgeCard", "DictionaryEntry", "build_card", "card_relevant",
            "define", "SOURCES", "SOURCE_LABELS"]
 
-_TIMEOUT = 6.0
+# The knowledge-panel fetch runs inline on the results page, so its timeout is
+# the worst case a first-time (uncached) query can add to the response. Keep it
+# tight — a panel that is slow to fetch is not worth stalling the whole SERP.
+_TIMEOUT = 2.5
 _UA = ("serikasearch/1.1 (knowledge panel; +https://serikasearch.com/about)")
 
 # Order matters — this is the order the source switcher renders in.
@@ -465,14 +468,21 @@ def _fetch_text(url: str, cache_key: str, ttl: int = 43200) -> str:
 # local index source
 # --------------------------------------------------------------------------- #
 
-def _index_card(index: Index, query: str) -> Optional[KnowledgeCard]:
-    """A reference page the crawler already holds — instant, no network."""
+def _index_card(index: Index, query: str,
+                results=None) -> Optional[KnowledgeCard]:
+    """A reference page the crawler already holds — instant, no network.
+
+    ``results`` lets the caller hand in the page's already-fetched search
+    results so we skip a second (expensive) ranking query for the same words.
+    """
     query_tokens = set(_tokens(query))
     if not query_tokens:
         return None
 
+    if results is None:
+        results = index.search(query, limit=8)
     best, best_score = None, 0.0
-    for result in index.search(query, limit=8):
+    for result in results:
         host = result.host or urlsplit(result.url).netloc
         if not _is_reference(host):
             continue
@@ -509,7 +519,7 @@ def _index_card(index: Index, query: str) -> Optional[KnowledgeCard]:
 # --------------------------------------------------------------------------- #
 
 def build_card(index: Index, query: str,
-               source: str = "") -> Optional[KnowledgeCard]:
+               source: str = "", results=None) -> Optional[KnowledgeCard]:
     """Build the knowledge panel for ``query``.
 
     ``source`` pins a specific encyclopedia (the reader clicked a tab). With no
@@ -526,14 +536,14 @@ def build_card(index: Index, query: str,
     elif source in _WIKI_ENDPOINTS:
         card = _mediawiki_card(query, source)
     elif source == "index":
-        card = _index_card(index, query)
+        card = _index_card(index, query, results)
     else:
-        card = _index_card(index, query) or _mediawiki_card(query, "wikipedia")
+        card = _index_card(index, query, results) or _mediawiki_card(query, "wikipedia")
 
     if card is None and source:
         # The reader asked for a source that has no article — fall back so the
         # panel still shows something, with the switcher intact.
-        card = _index_card(index, query) or _mediawiki_card(query, "wikipedia")
+        card = _index_card(index, query, results) or _mediawiki_card(query, "wikipedia")
     if card is None:
         return None
 
