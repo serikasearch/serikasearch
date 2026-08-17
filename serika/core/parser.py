@@ -15,6 +15,11 @@ from .unfurl import extract_meta
 
 # Tags whose text content we never want in the index.
 _SKIP_CONTENT = {"script", "style", "noscript", "template", "svg", "head"}
+# Chrome elements: we still extract links/images from these, but their text
+# (menus, "Sign up", "Cookie settings", footer copyright) is noise that
+# pollutes descriptions and snippets. Tracked separately from _SKIP_CONTENT
+# so links inside nav/footer are still crawled.
+_CHROME_TAGS = {"nav", "header", "footer", "aside", "form", "menu"}
 _BLOCK_TAGS = {
     "p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
     "section", "article", "header", "footer", "table", "ul", "ol",
@@ -90,6 +95,7 @@ class _Extractor(HTMLParser):
         self.base_url = base_url
         self.page = ParsedPage()
         self._skip_depth = 0
+        self._chrome_depth = 0
         self._in_title = False
         self._chunks: list[str] = []
         self._heading_depth = 0
@@ -102,6 +108,8 @@ class _Extractor(HTMLParser):
         if tag in _SKIP_CONTENT:
             self._skip_depth += 1
             return
+        if tag in _CHROME_TAGS:
+            self._chrome_depth += 1
         if tag == "title":
             # Some pages have multiple <title> tags; keep only the first.
             if not self.page.title:
@@ -132,7 +140,9 @@ class _Extractor(HTMLParser):
     def handle_endtag(self, tag):
         if tag in _SKIP_CONTENT and self._skip_depth > 0:
             self._skip_depth -= 1
-        elif tag == "title":
+        if tag in _CHROME_TAGS and self._chrome_depth > 0:
+            self._chrome_depth -= 1
+        if tag == "title":
             self._in_title = False
         elif tag in _BLOCK_TAGS:
             if tag in _HEADING_TAGS and self._heading_depth > 0:
@@ -150,6 +160,11 @@ class _Extractor(HTMLParser):
             self.page.title += data
             return
         if self._skip_depth > 0:
+            return
+        # Don't collect text from nav/header/footer/etc. — it's menus and
+        # boilerplate, not article content. Links inside them are still
+        # captured by handle_starttag.
+        if self._chrome_depth > 0:
             return
         if self._heading_depth > 0:
             self._heading_chunks.append(data)
@@ -341,7 +356,9 @@ class _Extractor(HTMLParser):
         self.page.text = text
         self.page.title = re.sub(r"\s+", " ", self.page.title).strip()
         if not self.page.description:
-            self.page.description = text[:300]
+            # With chrome tags stripped, the text now starts at real content.
+            # Find the first substantial sentence rather than a hard cut.
+            self.page.description = _first_sentences(text, 300)
 
         self.page.links = _dedupe(self.page.links)
 
@@ -366,6 +383,31 @@ def _dedupe(items: list[str]) -> list[str]:
             seen.add(item)
             out.append(item)
     return out
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _first_sentences(text: str, max_chars: int = 300) -> str:
+    """Take the first few complete sentences as a description.
+
+    Better than a hard ``text[:300]`` cut — it won't end mid-sentence, and
+    by starting from chrome-stripped text it gets real article prose.
+    """
+    text = (text or "").strip()
+    if not text:
+        return ""
+    out = ""
+    for sentence in _SENTENCE_SPLIT.split(text):
+        if not out:
+            out = sentence
+        elif len(out) + len(sentence) + 1 <= max_chars:
+            out = f"{out} {sentence}"
+        else:
+            break
+    if len(out) > max_chars:
+        out = out[:max_chars].rsplit(" ", 1)[0] + "…"
+    return out.strip()
 
 
 def parse_html(html: str, base_url: str, want_meta: bool = True) -> ParsedPage:
