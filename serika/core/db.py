@@ -743,11 +743,16 @@ class Index:
             params.append(f"%{w}%")
 
         sql = (
-            "WITH ranked AS ("
+            "WITH cand AS ("
             "  SELECT i.src, i.page_url, i.page_title, i.host, i.alt,"
-            "         i.width, i.height, i.is_logo,"
-            f"         ts_rank_cd(%s, i.tsv, websearch_to_tsquery('english', %s)) AS score"
+            "         i.width, i.height, i.is_logo, i.tsv"
             "  FROM images i " + where +
+            f"  LIMIT {self._RANK_CANDIDATE_CAP}"
+            "), ranked AS ("
+            "  SELECT c.src, c.page_url, c.page_title, c.host, c.alt,"
+            "         c.width, c.height, c.is_logo,"
+            f"         ts_rank_cd(%s, c.tsv, websearch_to_tsquery('english', %s)) AS score"
+            "  FROM cand c"
             ")"
             " SELECT sub.src, sub.page_url, sub.page_title, sub.host, sub.alt,"
             "        sub.width, sub.height, sub.is_logo, sub.score"
@@ -759,7 +764,9 @@ class Index:
             f"  + 0.1 * CASE WHEN sub.alt <> '' THEN 1 ELSE 0 END"
             f") DESC LIMIT %s OFFSET %s"
         )
-        params = [self._RANK_WEIGHTS, qtext] + params + [limit, offset]
+        # Param order follows the SQL: the cand WHERE (match text + filters)
+        # comes first, then the ts_rank_cd weights + query, then LIMIT/OFFSET.
+        params = params + [self._RANK_WEIGHTS, qtext] + [limit, offset]
 
         conn = self._get_conn()
         try:

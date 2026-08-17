@@ -398,7 +398,11 @@ class Handler(BaseHTTPRequestHandler):
             if _NON_ARTIST_WORDS.search(text) or _STUDIO_NAME_RE.match(title):
                 return None
             if _MUSIC_WORDS.search(text):
-                name = title
+                # Wikipedia titles carry a disambiguation parenthetical
+                # ("Ado (singer)", "Kesha (musician)") that MusicBrainz doesn't
+                # know — and which trips the name-match guard below, dropping the
+                # artist card entirely. Match on the bare name.
+                name = re.sub(r"\s*\([^)]*\)\s*$", "", title).strip() or title
         if not name or len(name) < 2:
             return None
 
