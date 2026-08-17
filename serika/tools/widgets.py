@@ -165,14 +165,14 @@ def parse_split(query: str):
                           tool="split", data={"empty": True})
         tip_pct = _find_percent(body)
         if tip_pct is None:
-            tip_pct = 18.0
+            tip_pct = 0.0
         people = _find_people(body)
         return _split_widget(amount, tip_pct, people)
 
     match = _TIP_RE.match(query)
     if match:
         amount = float(match.group(2).replace(",", ""))
-        tip_pct = float(match.group(1) or match.group(3) or match.group(4) or 18)
+        tip_pct = float(match.group(1) or match.group(3) or match.group(4) or 0)
         return _split_widget(amount, tip_pct, 1)
     return None
 
@@ -215,8 +215,10 @@ def _split_widget(amount: float, tip_pct: float, people: int) -> Widget:
         kind="split",
         title=f"${per_person:,.2f}" if people > 1 else f"${total:,.2f}",
         subtitle=(f"per person, {people} way{'s' if people != 1 else ''}"
-                  if people > 1 else f"total with {tip_pct:g}% tip"),
-        detail=f"${amount:,.2f} bill + ${tip:,.2f} tip",
+                  if people > 1
+                  else (f"total with {tip_pct:g}% tip" if tip_pct else "total")),
+        detail=(f"${amount:,.2f} bill + ${tip:,.2f} tip" if tip_pct
+                else f"${amount:,.2f} bill"),
         rows=rows, tool="split",
         copy_value=f"{per_person:.2f}" if people > 1 else f"{total:.2f}",
         data={"amount": amount, "tip_pct": tip_pct, "people": people,
