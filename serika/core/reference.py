@@ -213,6 +213,50 @@ def _clean_title(title: str) -> str:
                   title).strip()
 
 
+# Wikipedia page chrome — the navigation menus, sidebar, and personal-tools
+# block that the text extractor captures before the article body. These appear
+# as a run of short fragments at the start of the extracted text.
+_WIKI_CHROME_PHRASES = (
+    "jump to content", "main menu", "move to sidebar", "hide", "show",
+    "navigation", "main page", "contents", "current events", "random article",
+    "about wikipedia", "contact us", "contribute", "help", "learn to edit",
+    "community portal", "recent changes", "upload file", "special pages",
+    "search", "search appearance", "donate", "create account", "log in",
+    "log out", "personal tools", "toggle", "switch language", "read in",
+    "article", "talk", "read", "edit", "view history", "tools",
+    "what links here", "related changes", "upload file", "special pages",
+    "permanent link", "page information", "cite this page", "wikidata item",
+    "print/export", "download as pdf", "printable version",
+)
+_WIKI_CHROME_SET = frozenset(_WIKI_CHROME_PHRASES)
+
+
+def _strip_wiki_chrome(text: str) -> str:
+    """Remove Wikipedia navigation/menu boilerplate from extracted page text.
+
+    The text extractor pulls the whole page, so the first few hundred
+    characters are often menus and sidebar links, not article prose. We drop
+    leading fragments that match known chrome phrases until we reach what
+    looks like the start of the actual article.
+    """
+    if not text:
+        return text
+    words = text.split()
+    i = 0
+    while i < len(words):
+        # Try progressively longer windows — chrome fragments are 1-4 words.
+        matched = False
+        for end in range(min(i + 4, len(words)), i, -1):
+            fragment = " ".join(words[i:end]).lower().strip(" .")
+            if fragment in _WIKI_CHROME_SET:
+                i = end
+                matched = True
+                break
+        if not matched:
+            break
+    return " ".join(words[i:]).strip()
+
+
 # --------------------------------------------------------------------------- #
 # MediaWiki-backed sources (Wikipedia, Simple Wikipedia, Wiktionary)
 # --------------------------------------------------------------------------- #
@@ -499,7 +543,10 @@ def _index_card(index: Index, query: str,
 
     host = best.host or urlsplit(best.url).netloc
     plain = best.snippet.replace("<mark>", "").replace("</mark>", "")
-    summary = _summarise(best.description or plain)
+    desc = best.description or plain
+    if "wikipedia.org" in host:
+        desc = _strip_wiki_chrome(desc)
+    summary = _summarise(desc)
     if len(summary) < 40:
         return None
 
