@@ -409,16 +409,34 @@ def _anime(query: str, ctx: dict) -> Optional[Answer]:
     if schedule is None:
         return None
     return Answer(
-        kind="anime", title="Airing schedule",
-        subtitle="Upcoming episodes worldwide",
+        kind="anime", title="Anime schedule",
+        subtitle="Airing, upcoming season & trending",
         source="AniList", source_url="https://anilist.co/",
         tool="anime",
-        data={"episodes": [{
-            "title": ep.english or ep.title, "romaji": ep.title,
-            "episode": ep.episode, "airing_at": ep.airing_at,
-            "format": ep.format, "url": ep.url, "cover": ep.cover,
-            "score": ep.score, "genres": ep.genres,
-        } for ep in schedule.episodes]},
+        data={
+            "episodes": [{
+                "title": ep.english or ep.title, "romaji": ep.title,
+                "episode": ep.episode, "airing_at": ep.airing_at,
+                "format": ep.format, "url": ep.url, "cover": ep.cover,
+                "score": ep.score, "genres": ep.genres,
+                "studio": ep.studio, "total_episodes": ep.total_episodes,
+                "countdown": ep.countdown,
+            } for ep in schedule.episodes],
+            "upcoming": [{
+                "title": u.english or u.title, "romaji": u.title,
+                "format": u.format, "url": u.url, "cover": u.cover,
+                "score": u.score, "genres": u.genres,
+                "studio": u.studio, "total_episodes": u.total_episodes,
+            } for u in schedule.upcoming],
+            "trending": [{
+                "title": t.english or t.title, "romaji": t.title,
+                "format": t.format, "url": t.url, "cover": t.cover,
+                "score": t.score, "genres": t.genres,
+                "studio": t.studio, "total_episodes": t.total_episodes,
+            } for t in schedule.trending],
+            "next_season": schedule.next_season,
+            "next_year": schedule.next_year,
+        },
     )
 
 

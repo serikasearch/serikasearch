@@ -118,7 +118,8 @@
   --wide-max:   1440px;   /* image grid and tool pages */
   --prose-max:   72ch;    /* legal and help pages */
   --panel-w:     360px;
-  --header-h:     64px;   /* the compact bar; tabs sit below it */
+  --header-h:     64px;   /* the compact bar on its own (content pages) */
+  --header-full: 108px;   /* the bar plus the result-type tabs (search pages) */
 
   color-scheme: dark;
 }

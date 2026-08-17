@@ -102,17 +102,24 @@ class Flight:
 
 _FLIGHT_RE = re.compile(
     r"^\s*(?:track\s+(?:flight\s+)?|(?:where\s+is\s+)?flight\s+|"
-    r"flight\s+status\s+|flight\s+tracker\s+)([A-Za-z]{2,3}\s?\d{1,4}[A-Za-z]?)"
+    r"flight\s+status\s+|flight\s+tracker\s+)"
+    r"([A-Za-z]{1,4}\s?\d{1,5}[A-Za-z]{0,3})"
     r"\s*\??$",
     re.I,
 )
 
 
 def _normalise_callsign(raw: str) -> list[str]:
-    """Return candidate OpenSky callsigns for a user-typed flight number."""
+    """Return candidate OpenSky callsigns for a user-typed flight number.
+
+    Handles IATA (``BA2490``), ICAO (``BAW2490``), US registrations
+    (``N357BG``), and alphanumeric callsigns (``AIC2GM``, ``TVF25RY``).
+    """
     text = re.sub(r"\s+", "", raw).upper()
-    m = re.match(r"^([A-Z]{2,3})(\d{1,4}[A-Z]?)$", text)
+    m = re.match(r"^([A-Z]{2,3})(\d{1,4}[A-Z]{0,2})$", text)
     if not m:
+        # Not an airline-style code — accept it verbatim (US N-numbers,
+        # military, general aviation).
         return [text]
     prefix, number = m.group(1), m.group(2)
     candidates = [prefix + number]

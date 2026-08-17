@@ -1,0 +1,52 @@
+# top-social — community and social platforms.
+#
+# The crawler honours each site's robots.txt, so the big walled gardens
+# (Instagram, TikTok, X) contribute only what they choose to expose to
+# crawlers — usually little. The open and federated platforms below are the
+# ones that actually reward a crawl, and their sitemaps (now auto-discovered)
+# do most of the work of reaching individual profiles and posts.
+
+# --- Reddit (old.reddit renders without JS and is far more crawlable) ---
+https://old.reddit.com/r/all
+https://old.reddit.com/r/popular
+https://old.reddit.com/r/technology
+https://old.reddit.com/r/science
+https://old.reddit.com/r/gaming
+https://old.reddit.com/r/anime
+https://old.reddit.com/r/worldnews
+https://old.reddit.com/r/AskReddit
+
+# --- Fediverse / Mastodon (open, crawlable, sitemap-friendly) ---
+https://mastodon.social
+https://mastodon.online
+https://fosstodon.org
+https://hachyderm.io
+https://mstdn.social
+
+# --- Q&A and knowledge communities ---
+https://stackoverflow.com
+https://stackexchange.com
+https://superuser.com
+https://serverfault.com
+https://news.ycombinator.com
+
+# --- Developer / project social ---
+https://github.com
+https://gitlab.com
+https://dev.to
+https://lobste.rs
+
+# --- Blogging / publishing platforms ---
+https://medium.com
+https://substack.com
+https://wordpress.com
+https://bsky.app
+
+# --- Mainstream social (robots-gated; present for completeness) ---
+https://www.youtube.com
+https://www.tiktok.com
+https://www.instagram.com
+https://www.facebook.com
+https://x.com
+https://www.pinterest.com
+https://www.linkedin.com

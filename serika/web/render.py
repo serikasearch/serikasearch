@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import html
 import re
+import time
 from urllib.parse import quote_plus, urlencode, urlsplit
 
 from ..core import bangs as bang_module
-from ..core.reference import SOURCE_LABELS, SOURCES, DICTIONARY_LINKS
+from ..core.reference import DICTIONARY_LINKS
 from ..tools import TOOLS, tool_groups
 from .templates import render
 
@@ -27,7 +28,7 @@ __all__ = ["shell", "header", "searchbox", "result_cards", "image_cards",
            "pager", "related_block", "did_you_mean_block", "doc_sections",
            "doc_toc", "tool_cards", "bang_groups", "stat_cards", "icon"]
 
-ASSET_VERSION = "14"
+ASSET_VERSION = "27"
 
 WORDMARK = "serika<em>search</em>"
 
@@ -107,6 +108,7 @@ _ICON_PATHS = {
     "luggage": '<rect x="6" y="7" width="12" height="14" rx="2"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3M10 11v6M14 11v6"/>',
     "plane": '<path d="M17.8 19.8 16 14l3-3c1.5-1.5 2-3.5 1-4.5s-3-.5-4.5 1l-3 3-5.8-1.8a1 1 0 0 0-1 .3l-.5.5a.5.5 0 0 0 .1.8L9 13l-2 2H5l-1.5 1.5a.5.5 0 0 0 .2.8L7 18l1.2 2.8a.5.5 0 0 0 .8.2L10.5 20v-2l2-2 3.9 3.4a.5.5 0 0 0 .8-.1l.5-.5a1 1 0 0 0 .1-1z"/>',
     "coin": '<circle cx="12" cy="12" r="9"/><path d="M14.5 9a2.5 2.5 0 0 0-2.5-1.5c-1.5 0-2.5.8-2.5 2s1 1.8 2.5 2.2 2.5.9 2.5 2-1 2-2.5 2A2.5 2.5 0 0 1 9.5 16M12 6v1.5M12 16.5V18"/>',
+    "wrench": '<path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L3 18l3 3 6.4-6.4a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/>',
 }
 
 
@@ -119,6 +121,51 @@ def icon(name: str, size: int = 16, stroke: float = 1.9) -> str:
         f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
         f'stroke="currentColor" stroke-width="{stroke}" stroke-linecap="round" '
         f'stroke-linejoin="round" aria-hidden="true">{path}</svg>'
+    )
+
+
+# Filled brand marks (official simple-icons glyphs), drawn in the current text
+# colour so they sit quietly in a link list rather than shouting in brand
+# colours. Used for the artist card's "Listen & tickets" row.
+_BRAND_GLYPHS = {
+    "spotify": "M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 "
+               "0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-"
+               "10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-"
+               ".9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-"
+               "3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-"
+               ".479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 "
+               "10.561 18.72 12.84c.361.181.54.78.181 1.2zm.12-3.36C15.24 8.4 "
+               "8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-"
+               "1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02"
+               ".419 1.56-.299.421-1.02.599-1.559.28z",
+    "youtube": "M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 "
+               "3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 "
+               "6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 "
+               "2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a"
+               "3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502"
+               "-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z",
+    "apple": "M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-"
+             "4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 "
+             "3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 "
+             "3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-"
+             "3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 "
+             "2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-"
+             "3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-"
+             "1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 "
+             "1.338.104 2.715-.688 3.559-1.701",
+    "bandcamp": "M0 18.75l7.437-13.5H24l-7.438 13.5H0z",
+    "soundcloud": "M7 17h9.5a3 3 0 0 0 .3-5.99A4.5 4.5 0 0 0 8 9.2V17H7zm-2-"
+                  "5.4V17H6v-5.4H5zm-2 1V17H4v-4.4H3z",
+}
+
+
+def brand_icon(key: str, size: int = 16) -> str:
+    path = _BRAND_GLYPHS.get(key)
+    if not path:
+        return ""
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" '
+        f'fill="currentColor" aria-hidden="true"><path d="{path}"/></svg>'
     )
 
 
@@ -324,25 +371,14 @@ def result_cards(results, metas: dict | None = None,
         host = r.host or urlsplit(r.url).netloc
         meta = metas.get(r.url, {})
 
-        thumb = ""
-        modifier = ""
-        image = (meta.get("image") or "").strip()
-        # A share image is only worth a thumbnail if it's a real picture, not a
-        # 1200×630 logo card — those add noise without adding information.
-        if image.startswith("http") and (meta.get("image_width") or 400) >= 200:
-            alt = meta.get("image_alt") or ""
-            thumb = (
-                f'<div class="result-thumb"><img src="{e(image)}" alt="{e(alt)}" '
-                f'loading="lazy" decoding="async" referrerpolicy="no-referrer" '
-                f'data-fallback="hide-parent"/></div>'
-            )
-            modifier = "has-thumb"
-
+        # The web results stay text-only; picture browsing lives on the Images
+        # tab. Share images here added a column of near-duplicate logo cards
+        # without helping the reader choose a result.
         site_name = (meta.get("site_name") or "").strip() or host
 
         out.append(render("components/result.html", {
             "i": i,
-            "mod": modifier,
+            "mod": "",
             "host_q": quote_plus(host),
             "site_name": site_name[:60],
             "display_url": _display_url(r.url),
@@ -352,7 +388,6 @@ def result_cards(results, metas: dict | None = None,
             "snippet": _safe_snippet(r.snippet),
             "rich": _rich_row(meta),
             "sections": _sections_row(meta, r.url),
-            "thumb": thumb,
         }))
     return "".join(out)
 
@@ -442,19 +477,7 @@ def knowledge_panel(card, query: str) -> str:
         )
         gallery_block = f'<div class="kpanel-gallery">{thumbs}</div>'
 
-    # Source switcher — the same subject, read from a different encyclopedia.
-    tabs_html = ""
-    if card.available:
-        links = []
-        for key in SOURCES:
-            active = "active" if key == card.source_key else ""
-            href = search_url(query, "web", 1, src=key)
-            links.append(f'<a class="ksource {active}" href="{e(href)}">'
-                         f"{e(SOURCE_LABELS.get(key, key))}</a>")
-        tabs_html = f'<div class="kpanel-sources">{"".join(links)}</div>'
-
     return render("components/knowledge-panel.html", {
-        "sources": tabs_html,
         "image_block": image_block,
         "source_name": card.source_name,
         "title": card.title,
@@ -960,6 +983,212 @@ def _meeting_widget(zones: list[str]) -> str:
     )
 
 
+def meeting_create_page(notice: str = "", values: dict | None = None,
+                        status: int = 200) -> str:
+    """The /meeting landing page: a form to spin up a shareable plan."""
+    v = values or {}
+    body = _meeting_create_body(v)
+    return render("pages/meeting.html", {
+        "mode": "create",
+        "header": header("", "", None, {}, show_tabs=False),
+        "notice": notice,
+        "title_value": v.get("title", ""),
+        "body": body,
+        "plan_json": "{}",
+        "owner_token": "",
+        "plan_id": "",
+        "share_url": "",
+        "expired": "",
+    })
+
+
+def meeting_view_page(plan: dict, slots: list, responses: list,
+                      owner_token: str = "", share_url: str = "",
+                      notice: str = "", status: int = 200) -> str:
+    """The /meeting/<id> page: the aggregate grid plus the submit form."""
+    import json as _json
+    payload = html.escape(_json.dumps({
+        "plan": plan, "slots": slots, "responses": responses,
+        "owner_token": owner_token, "share_url": share_url,
+    }), quote=True)
+    expired = bool(plan.get("expires_at")) and \
+        plan["expires_at"] < time.time()
+    body = _meeting_view_body(plan, share_url, owner_token)
+    return render("pages/meeting.html", {
+        "mode": "view",
+        "header": header("", "", None, {}, show_tabs=False),
+        "notice": notice,
+        "title_value": plan.get("title", ""),
+        "body": body,
+        "plan_json": payload,
+        "owner_token": owner_token,
+        "plan_id": plan.get("id", ""),
+        "share_url": share_url,
+        "expired": "expired" if expired else "",
+    })
+
+
+_HOUR_OPTIONS = "".join(
+    f'<option value="{h}">{h:02d}:00</option>' for h in range(24))
+
+
+def _meeting_create_body(v: dict) -> str:
+    def _sel(value, current):
+        return f' value="{e(current)}" selected' if str(value) == str(current) \
+            else f' value="{e(value)}"'
+    hs = v.get("hour_start", "9")
+    he = v.get("hour_end", "18")
+    hour_start_html = "".join(
+        f'<option value="{h}"'
+        f'{" selected" if str(h) == str(hs) else ""}>{h:02d}:00</option>'
+        for h in range(24))
+    hour_end_html = "".join(
+        f'<option value="{h}"'
+        f'{" selected" if str(h) == str(he) else ""}>{h:02d}:00</option>'
+        for h in range(24))
+    return f'''
+    <p class="doc-summary">Spin up a one-time link, send it to your colleagues,
+      and everyone submits the hours that work for them. This page aggregates
+      the answers into a single overlap grid so you can pick the slot that
+      suits the whole team.</p>
+    <form class="form-grid meet-create" method="post" action="/meeting">
+      <div class="field">
+        <label for="m-title">Meeting title</label>
+        <input type="text" id="m-title" name="title" required maxlength="200"
+               placeholder="Weekly sync · Q3 roadmap review"
+               value="{e(v.get('title', ''))}"/>
+      </div>
+      <div class="field">
+        <label for="m-owner-name">Your name</label>
+        <input type="text" id="m-owner-name" name="owner_name" maxlength="120"
+               placeholder="Alex"
+               value="{e(v.get('owner_name', ''))}"/>
+      </div>
+      <div class="field">
+        <label for="m-owner-city">Your city</label>
+        <input type="text" id="m-owner-city" name="owner_city" maxlength="120"
+               list="meet-cities" autocomplete="off"
+               placeholder="Amsterdam"
+               value="{e(v.get('owner_city', ''))}"/>
+        <span class="hint">Any major city, country, or IANA zone works —
+              try <code>Tokyo</code>, <code>nyc</code>,
+              <code>Asia/Kolkata</code>.</span>
+      </div>
+      <div class="field field-row">
+        <div>
+          <label for="m-date-start">First possible date</label>
+          <input type="date" id="m-date-start" name="date_start" required
+                 value="{e(v.get('date_start', ''))}"/>
+        </div>
+        <div>
+          <label for="m-date-end">Last possible date</label>
+          <input type="date" id="m-date-end" name="date_end" required
+                 value="{e(v.get('date_end', ''))}"/>
+        </div>
+      </div>
+      <div class="field field-row">
+        <div>
+          <label for="m-hour-start">Hours from</label>
+          <select id="m-hour-start" name="hour_start">{hour_start_html}</select>
+        </div>
+        <div>
+          <label for="m-hour-end">Hours to</label>
+          <select id="m-hour-end" name="hour_end">{hour_end_html}</select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="m-note">Note (optional)</label>
+        <textarea id="m-note" name="note" maxlength="1000" rows="3"
+                  placeholder="Anything colleagues should know — agenda, video
+                  link, etc.">{e(v.get('note', ''))}</textarea>
+      </div>
+      <datalist id="meet-cities"></datalist>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Create shareable link</button>
+        <span class="hint">No sign-up. The link is the only way in — keep it for
+              the people you want to invite.</span>
+      </div>
+    </form>
+    '''
+
+
+def _meeting_view_body(plan: dict, share_url: str, owner_token: str) -> str:
+    from ..tools.timely import resolve_zone
+    owner_zone = plan.get("owner_zone") or resolve_zone(
+        plan.get("owner_city", "")) or "UTC"
+    summary = (f"{plan.get('date_start', '')} → {plan.get('date_end', '')}, "
+               f"{plan.get('hour_start', 0):02d}:00–"
+               f"{plan.get('hour_end', 0):02d}:00 "
+               f"{owner_zone.rsplit('/', 1)[-1].replace('_', ' ')} time.")
+    note_html = (f'<p class="answer-detail">{e(plan.get("note", ""))}</p>'
+                 if plan.get("note") else "")
+    delete_btn = ('<button type="button" class="btn btn-ghost btn-sm '
+                  'meet-delete" data-meet-delete>Delete plan</button>'
+                  if owner_token else '')
+    return f'''
+    <p class="doc-summary" data-meet-summary>{e(summary)}</p>
+    {note_html}
+    <div class="meet-share" data-meet-share>
+      <label for="m-share">Share this link</label>
+      <div class="meet-share-row">
+        <input type="text" id="m-share" readonly data-meet-share-input
+               value="{e(share_url)}"/>
+        <button type="button" class="btn btn-ghost btn-sm copy-btn"
+                data-copy="{e(share_url)}">Copy link</button>
+        {delete_btn}
+      </div>
+      <span class="hint">Send this to your colleagues. Anyone with the link can
+            submit their availability.</span>
+    </div>
+    <section class="meet-section" data-meet-aggregate>
+      <h2>Team availability</h2>
+      <p class="answer-detail">Each column is one hour; each row is a colleague.
+         The brightest cells work for the most people. Hover a column to see
+         who&rsquo;s free.</p>
+      <div class="meet-agg-grid" data-meet-agg-grid></div>
+      <div class="meet-legend">
+        <span class="meet-legend-item"><span class="meet-sw meet-sw-yes"></span>Free</span>
+        <span class="meet-legend-item"><span class="meet-sw meet-sw-maybe"></span>Maybe</span>
+        <span class="meet-legend-item"><span class="meet-sw meet-sw-no"></span>Not marked</span>
+      </div>
+    </section>
+    <section class="meet-section" data-meet-submit>
+      <h2 data-meet-submit-heading>Add your availability</h2>
+      <div class="meet-submit-form">
+        <div class="field">
+          <label for="r-name">Your name</label>
+          <input type="text" id="r-name" data-meet-resp-name maxlength="120"
+                 placeholder="Your name"/>
+        </div>
+        <div class="field">
+          <label for="r-city">Your city</label>
+          <input type="text" id="r-city" data-meet-resp-city list="meet-cities"
+                 autocomplete="off" placeholder="Amsterdam"/>
+          <span class="hint" data-meet-resp-zone-hint></span>
+        </div>
+        <div class="field">
+          <label for="r-note">Note (optional)</label>
+          <input type="text" id="r-note" data-meet-resp-note maxlength="500"
+                 placeholder="Prefer mornings / can&rsquo;t do Wednesday / etc."/>
+        </div>
+      </div>
+      <div class="meet-pick" data-meet-pick></div>
+      <div class="meet-pick-controls">
+        <button type="button" class="btn btn-sm" data-meet-pick-all>Mark all free</button>
+        <button type="button" class="btn btn-sm" data-meet-pick-clear>Clear</button>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" data-meet-submit-btn>
+          Submit availability</button>
+      </div>
+    </section>
+    <section class="meet-section meet-responses" data-meet-responses hidden>
+      <h2>Responses</h2>
+      <ul class="meet-response-list" data-meet-response-list></ul>
+    </section>
+    '''
+
+
 def _color_picker_widget() -> str:
     return (
         '<div class="cp-tool" data-cp>'
@@ -1044,33 +1273,120 @@ def _translate_body(answer) -> str:
 
 
 def _anime_body(answer) -> str:
-    import time
-    episodes = answer.data.get("episodes", [])
-    rows = []
-    for ep in episodes:
-        when = ep.get("airing_at", 0)
-        try:
-            label = time.strftime("%a %H:%M", time.localtime(when))
-        except (ValueError, OSError):
-            label = ""
-        cover = ""
-        if ep.get("cover"):
-            cover = (f'<img class="anime-cover" src="{e(ep["cover"])}" alt="" '
-                     f'loading="lazy" decoding="async" '
-                     f'referrerpolicy="no-referrer" data-fallback="hide"/>')
-        score = (f'<span class="anime-score">★ {ep["score"]}</span>'
-                 if ep.get("score") else "")
-        title = ep.get("title") or ep.get("romaji") or ""
-        url = ep.get("url") or "#"
-        rows.append(
-            f'<a class="anime-row" href="{e(url)}" target="_blank" '
-            f'rel="noopener noreferrer">{cover}'
-            f'<span class="anime-info"><span class="anime-title">{e(title)}</span>'
-            f'<span class="anime-ep">Episode {ep.get("episode", 0)} · '
-            f'{e(ep.get("format", ""))}</span></span>'
-            f'<span class="anime-when">{e(label)}{score}</span></a>'
+    import time as _time
+    data = answer.data
+    sections = []
+
+    # --- Airing schedule ---
+    episodes = data.get("episodes", [])
+    if episodes:
+        rows = []
+        for ep in episodes:
+            when = ep.get("airing_at", 0)
+            try:
+                label = _time.strftime("%a %d %b %H:%M", _time.localtime(when))
+            except (ValueError, OSError):
+                label = ""
+            countdown = ep.get("countdown", "")
+            cover = ""
+            if ep.get("cover"):
+                cover = (f'<img class="anime-cover" src="{e(ep["cover"])}" alt="" '
+                         f'loading="lazy" decoding="async" '
+                         f'referrerpolicy="no-referrer" data-fallback="hide"/>')
+            score = (f'<span class="anime-score">★ {ep["score"]}</span>'
+                     if ep.get("score") else "")
+            title = ep.get("title") or ep.get("romaji") or ""
+            url = ep.get("url") or "#"
+            studio = ep.get("studio", "")
+            studio_html = f'<span class="anime-studio">{e(studio)}</span>' if studio else ""
+            total = ep.get("total_episodes", 0)
+            ep_label = f"EP {ep.get('episode', 0)}"
+            if total: ep_label += f" / {total}"
+            rows.append(
+                f'<a class="anime-row" href="{e(url)}" target="_blank" '
+                f'rel="noopener noreferrer">{cover}'
+                f'<span class="anime-info"><span class="anime-title">{e(title)}</span>'
+                f'<span class="anime-ep">{e(ep_label)} · {e(ep.get("format", ""))}'
+                f'{studio_html and " · " + studio_html}</span></span>'
+                f'<span class="anime-when"><span class="anime-countdown">'
+                f'{e(countdown)}</span><span class="anime-date">{e(label)}</span>'
+                f'{score}</span></a>'
+            )
+        sections.append(
+            f'<div class="anime-section"><h3>Airing soon</h3>'
+            f'<div class="anime-list">{"".join(rows)}</div></div>'
         )
-    return f'<div class="anime-list">{"".join(rows)}</div>'
+
+    # --- Upcoming season ---
+    upcoming = data.get("upcoming", [])
+    if upcoming:
+        season_label = ""
+        ns = data.get("next_season", "")
+        ny = data.get("next_year", 0)
+        if ns and ny: season_label = f"{e(ns)} {e(ny)}"
+        cards = []
+        for u in upcoming:
+            cover = ""
+            if u.get("cover"):
+                cover = (f'<img class="anime-card-cover" src="{e(u["cover"])}" '
+                         f'alt="" loading="lazy" decoding="async" '
+                         f'referrerpolicy="no-referrer" data-fallback="hide"/>')
+            title = u.get("title") or u.get("romaji") or ""
+            url = u.get("url") or "#"
+            score = (f'<span class="anime-card-score">★ {u["score"]}</span>'
+                     if u.get("score") else "")
+            genres = "".join(f'<span class="anime-genre">{e(g)}</span>'
+                             for g in u.get("genres", [])[:2])
+            studio = u.get("studio", "")
+            studio_html = f'<span class="anime-card-studio">{e(studio)}</span>' if studio else ""
+            cards.append(
+                f'<a class="anime-card" href="{e(url)}" target="_blank" '
+                f'rel="noopener noreferrer">{cover}'
+                f'<span class="anime-card-body">'
+                f'<span class="anime-card-title">{e(title)}</span>'
+                f'<span class="anime-card-meta">{e(u.get("format", ""))}'
+                f'{studio_html and " · " + studio_html}</span>'
+                f'<span class="anime-card-genres">{genres}</span>'
+                f'</span>{score}</a>'
+            )
+        sections.append(
+            f'<div class="anime-section"><h3>Upcoming — {season_label}</h3>'
+            f'<div class="anime-grid">{"".join(cards)}</div></div>'
+        )
+
+    # --- Trending ---
+    trending = data.get("trending", [])
+    if trending:
+        cards = []
+        for t in trending:
+            cover = ""
+            if t.get("cover"):
+                cover = (f'<img class="anime-card-cover" src="{e(t["cover"])}" '
+                         f'alt="" loading="lazy" decoding="async" '
+                         f'referrerpolicy="no-referrer" data-fallback="hide"/>')
+            title = t.get("title") or t.get("romaji") or ""
+            url = t.get("url") or "#"
+            score = (f'<span class="anime-card-score">★ {t["score"]}</span>'
+                     if t.get("score") else "")
+            genres = "".join(f'<span class="anime-genre">{e(g)}</span>'
+                             for g in t.get("genres", [])[:2])
+            cards.append(
+                f'<a class="anime-card" href="{e(url)}" target="_blank" '
+                f'rel="noopener noreferrer">{cover}'
+                f'<span class="anime-card-body">'
+                f'<span class="anime-card-title">{e(title)}</span>'
+                f'<span class="anime-card-meta">{e(t.get("format", ""))}</span>'
+                f'<span class="anime-card-genres">{genres}</span>'
+                f'</span>{score}</a>'
+            )
+        sections.append(
+            f'<div class="anime-section"><h3>Trending now</h3>'
+            f'<div class="anime-grid">{"".join(cards)}</div></div>'
+        )
+
+    if not sections:
+        return '<p class="answer-detail">No anime data available right now.</p>'
+    return f'<div class="anime-tool">{"".join(sections)}</div>'
 
 
 _STREAM_ICONS = {"Stream": "tv", "Rent": "receipt", "Buy": "receipt",
@@ -1083,7 +1399,8 @@ def _stream_body(answer) -> str:
     for group in data.get("groups", []):
         chips = "".join(
             (f'<a class="stream-provider" href="{e(o["url"])}" target="_blank" '
-             f'rel="noopener noreferrer">{e(o["provider"])}</a>' if o.get("url")
+             f'rel="noopener noreferrer">{_service_icon(o["url"])}'
+             f'<span>{e(o["provider"])}</span></a>' if o.get("url")
              else f'<span class="stream-provider">{e(o["provider"])}</span>')
             for o in group.get("offers", [])
         )
@@ -1094,8 +1411,10 @@ def _stream_body(answer) -> str:
     network = ""
     if data.get("network"):
         site = data.get("official_site")
-        net = (f'<a href="{e(site)}" target="_blank" rel="noopener noreferrer">'
-               f'{e(data["network"])}</a>' if site else e(data["network"]))
+        net = (f'<a class="stream-provider" href="{e(site)}" target="_blank" '
+               f'rel="noopener noreferrer">{_service_icon(site)}'
+               f'<span>{e(data["network"])}</span></a>' if site
+               else f'<span class="stream-provider">{e(data["network"])}</span>')
         network = (f'<div class="stream-group"><h4>Airs on</h4>'
                    f'<div class="stream-providers">{net}</div></div>')
     detail = (f'<div class="answer-detail">{e(answer.detail)}</div>'
@@ -1112,8 +1431,45 @@ def _stream_body(answer) -> str:
     )
 
 
-def artist_card(card) -> str:
-    """A MusicBrainz artist card: discography, genres, and links."""
+# Host substring → the brand glyph key that should mark a link to it.
+_SERVICE_BRAND = (
+    ("spotify.com", "spotify"),
+    ("music.apple.com", "apple"),
+    ("itunes.apple.com", "apple"),
+    ("tv.apple.com", "apple"),
+    ("youtube.com", "youtube"),
+    ("youtu.be", "youtube"),
+    ("soundcloud.com", "soundcloud"),
+    ("bandcamp.com", "bandcamp"),
+)
+
+
+def _service_icon(url: str) -> str:
+    """The mark beside a link to an external service.
+
+    A known service gets its monochrome brand glyph; everything else gets the
+    destination's favicon — the real one when we've crawled that host, and a
+    neutral letter tile when we haven't. Shared by every widget that lists
+    outbound links (artist, where-to-watch, …) so they all read the same way.
+    """
+    host = urlsplit(url).netloc.lower()
+    for needle, key in _SERVICE_BRAND:
+        if needle in host:
+            return f'<span class="svc-ico brand">{brand_icon(key, 15)}</span>'
+    if host:
+        return (f'<img class="svc-ico" src="/icon?h={quote_plus(host)}" '
+                f'alt="" width="16" height="16" loading="lazy" decoding="async"/>')
+    return f'<span class="svc-ico brand">{icon("external", 14)}</span>'
+
+
+def artist_card(card, knowledge=None) -> str:
+    """A MusicBrainz artist card: discography, genres, and links.
+
+    When a matching encyclopedia card is supplied it is folded in — the article
+    portrait and summary sit at the top and the source line credits both — so a
+    musician gets one combined panel instead of a MusicBrainz card beside a
+    duplicate Wikipedia panel.
+    """
     if card is None:
         return ""
     facts = []
@@ -1151,23 +1507,50 @@ def artist_card(card) -> str:
     if card.links:
         items = "".join(
             f'<a class="artist-link" href="{e(url)}" target="_blank" '
-            f'rel="noopener noreferrer">{e(label)}'
-            f'{icon("external", 12)}</a>'
+            f'rel="noopener noreferrer">{_service_icon(url)}'
+            f'<span>{e(label)}</span></a>'
             for label, url in card.links
         )
         links = (f'<div class="artist-section"><h4>Listen &amp; tickets</h4>'
                  f'<div class="artist-links">{items}</div></div>')
 
+    # Folded-in encyclopedia material: a portrait and a prose summary that
+    # MusicBrainz doesn't carry.
+    portrait = ""
+    summary = ""
+    source_extra = ""
+    if knowledge is not None:
+        if getattr(knowledge, "image", ""):
+            portrait = (
+                f'<img class="artist-portrait" src="{e(knowledge.image)}" '
+                f'alt="" loading="lazy" decoding="async" '
+                f'referrerpolicy="no-referrer" data-fallback="hide"/>'
+            )
+        if getattr(knowledge, "summary", ""):
+            summary = f'<p class="artist-summary">{e(knowledge.summary)}</p>'
+        if getattr(knowledge, "source_url", "") and getattr(
+                knowledge, "source_name", ""):
+            source_extra = (
+                f' · <a href="{e(knowledge.source_url)}" target="_blank" '
+                f'rel="noopener noreferrer">{e(knowledge.source_name)}</a>'
+            )
+
     meta_bits = [b for b in (descriptor, years) if b]
+    head = (
+        f'<div class="artist-head">'
+        f'<div class="artist-headings">'
+        f'<h2 class="artist-name">{e(card.name)}</h2>'
+        f'<p class="artist-meta">{e(" · ".join(meta_bits))}</p>'
+        f'</div>{portrait}</div>'
+    )
     return (
         f'<section class="answer kind-artist" aria-label="Artist">'
         f'<div class="answer-kicker">{icon("tv", 14)} Artist</div>'
-        f'<h2 class="artist-name">{e(card.name)}</h2>'
-        f'<p class="artist-meta">{e(" · ".join(meta_bits))}</p>'
-        f'{genres}{albums}{links}'
+        f'{head}{summary}{genres}{albums}{links}'
         f'<div class="answer-actions"><span class="answer-source">'
         f'Source: <a href="https://musicbrainz.org/artist/{e(card.mbid)}" '
-        f'target="_blank" rel="noopener noreferrer">MusicBrainz</a></span></div>'
+        f'target="_blank" rel="noopener noreferrer">MusicBrainz</a>'
+        f'{source_extra}</span></div>'
         f'</section>'
     )
 
@@ -1455,14 +1838,6 @@ def hint_chips(items: list[tuple[str, str]]) -> str:
     return "".join(
         f'<a class="chip" href="/search?q={quote_plus(query)}">{e(label)}</a>'
         for label, query in items
-    )
-
-
-def home_tool_strip(limit: int = 12) -> str:
-    return "".join(
-        f'<a class="tool-chip" href="/tools/{e(tool.slug)}">'
-        f"{icon(tool.icon, 17)}<span>{e(tool.name)}</span></a>"
-        for tool in TOOLS[:limit]
     )
 
 

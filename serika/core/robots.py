@@ -128,6 +128,20 @@ class RobotsCache:
     def crawl_delay_for(self, url: str) -> float:
         return self._load(url).crawl_delay
 
+    def sitemaps(self, url: str) -> list[str]:
+        """The ``Sitemap:`` URLs a host advertises in its robots.txt.
+
+        This is the front door to a site's own list of canonical URLs — the
+        single highest-signal thing robots.txt offers a crawler beyond the
+        Disallow rules.
+        """
+        rules = self._load(url)
+        try:
+            maps = rules.parser.site_maps()
+        except Exception:
+            maps = None
+        return list(maps) if maps else []
+
     def wait_if_needed(self, url: str) -> None:
         """Block just long enough to honour this host's crawl-delay.
 

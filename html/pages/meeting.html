@@ -1,0 +1,14 @@
+{{ header|safe }}
+<div class="doc meeting-page {{ mode }}-mode {{ expired }}">
+  <article class="doc-body" id="main" data-meeting-page
+           data-plan="{{ plan_json }}"
+           data-owner-token="{{ owner_token }}"
+           data-plan-id="{{ plan_id }}"
+           data-share-url="{{ share_url }}">
+    <span class="doc-kicker">Meeting planner</span>
+    <h1 class="doc-title"><span data-meet-title>{{ title_value }}</span></h1>
+    {{ notice|safe }}
+    {{ body|safe }}
+  </article>
+</div>
+{% include "components/footer.html" %}

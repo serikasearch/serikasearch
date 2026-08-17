@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "serika",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "serika", "serve", "--host", "127.0.0.1", "--port", "8799"],
+      "port": 8799
+    }
+  ]
+}

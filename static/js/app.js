@@ -117,6 +117,15 @@
     }, 1800);
   }
 
+  function debounce(fn, wait) {
+    var t = null;
+    return function () {
+      var ctx = this, args = arguments;
+      window.clearTimeout(t);
+      t = window.setTimeout(function () { fn.apply(ctx, args); }, wait);
+    };
+  }
+
   /* ============================================================== copy ==== */
 
   function copyText(text) {
@@ -191,6 +200,93 @@
     var card = img.closest(".image-card");
     if (card) card.classList.add("img-broken");
   }, true);
+
+  /* ====================================================== compact header == */
+
+  /* On a phone the bar and its tabs are 108px of a 812px screen, and they are
+     only wanted when you are heading back to the search box. So: slide out of
+     the way going down the page, come back the moment you scroll up. Wide
+     screens have the room and keep it pinned. */
+
+  (function initCompactHeader() {
+    var header = $(".header");
+    /* A bar that slides in and out on every scroll is exactly the motion a
+       reduced-motion request is asking us not to make. */
+    if (!header || !window.matchMedia || reduceMotion) return;
+
+    var narrow = window.matchMedia("(max-width: 900px)");
+    var last = window.pageYOffset;
+    var ticking = false;
+
+    function show() { document.body.classList.remove("header-hidden"); }
+
+    function update() {
+      ticking = false;
+      var y = window.pageYOffset;
+      var delta = y - last;
+      last = y;
+
+      /* Never hide it out from under an open dropdown, dialog or lightbox, and
+         never before the header has actually scrolled out of reach. */
+      if (!narrow.matches || y < 240 || document.body.classList.contains("lb-open") ||
+          header.contains(document.activeElement) ||
+          !$(".suggestions[hidden]", header)) {
+        show();
+        return;
+      }
+      if (delta > 6) document.body.classList.add("header-hidden");
+      else if (delta < -6) show();
+    }
+
+    window.addEventListener("scroll", function () {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(update);
+    }, { passive: true });
+
+    narrow.addEventListener("change", show);
+    header.addEventListener("focusin", show);
+  })();
+
+  /* ================================================== knowledge panel ===== */
+
+  /* The panel drops above the results below 1060px. A long article summary
+     there costs a full screen before the first result, so it is clamped to a
+     preview with a control to open it. */
+
+  (function initKnowledgePanel() {
+    var panel = $(".serp-aside .kpanel");
+    var button = panel && $("[data-kpanel-more]", panel);
+    var body = panel && $(".kpanel-body", panel);
+    if (!panel || !button || !body || !window.matchMedia) return;
+
+    var narrow = window.matchMedia("(max-width: 1059px)");
+    var label = $(".kpanel-more-label", button);
+
+    function sync() {
+      if (narrow.matches && body.scrollHeight > 300) {
+        panel.classList.add("collapsible");
+      } else {
+        panel.classList.remove("collapsible", "clamped");
+        button.setAttribute("aria-expanded", "false");
+        return;
+      }
+      /* Re-clamp only when the reader has not already opened it. */
+      if (button.getAttribute("aria-expanded") !== "true") {
+        panel.classList.add("clamped");
+      }
+    }
+
+    button.addEventListener("click", function () {
+      var open = panel.classList.toggle("clamped") === false;
+      button.setAttribute("aria-expanded", open ? "true" : "false");
+      if (label) label.textContent = open ? "Show less" : "Show more";
+    });
+
+    narrow.addEventListener("change", sync);
+    window.addEventListener("load", sync);
+    sync();
+  })();
 
   /* =========================================================== searchbox == */
 
@@ -1487,6 +1583,26 @@
 
   /* ==================================================== meeting planner === */
 
+  /* Resolve a typed place to an IANA zone via the server's full CITY_ZONES
+     table + IANA fallback. Returns a Promise of {zone,label,offset_hours}
+     or null. Used by both the quick widget and the shareable plan page so
+     "Amsterdam", "nyc", "Asia/Kolkata" all resolve the same way. */
+  function resolveZone(place) {
+    var q = (place || "").trim();
+    if (!q) return Promise.resolve(null);
+    return fetch("/api/zone?q=" + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.zone) return null;
+        return { zone: data.zone, label: data.label,
+                 offset_hours: data.offset_hours };
+      })
+      .catch(function () { return null; });
+  }
+
+  /* Quick overlap widget — the inline "meeting planner" answer. City input
+     now resolves through /api/zone (so Amsterdam works), and a CTA links
+     out to the full shareable plan flow. */
   $$("[data-meeting]").forEach(function (root) {
     var grid = $("[data-meet-grid]", root);
     var addBtn = $("[data-meet-add]", root);
@@ -1495,24 +1611,10 @@
     try { columns = JSON.parse(root.getAttribute("data-columns")); }
     catch (e) { columns = []; }
 
-    var CITY_TO_ZONE = {
-      "tokyo": ["Asia/Tokyo", 9], "london": ["Europe/London", 1],
-      "new york": ["America/New_York", -4], "los angeles": ["America/Los_Angeles", -7],
-      "paris": ["Europe/Paris", 2], "berlin": ["Europe/Berlin", 2],
-      "sydney": ["Australia/Sydney", 10], "dubai": ["Asia/Dubai", 4],
-      "singapore": ["Asia/Singapore", 8], "mumbai": ["Asia/Kolkata", 5.5],
-      "chicago": ["America/Chicago", -5], "sao paulo": ["America/Sao_Paulo", -3],
-      "moscow": ["Europe/Moscow", 3], "beijing": ["Asia/Shanghai", 8],
-      "seoul": ["Asia/Seoul", 9], "toronto": ["America/Toronto", -4]
-    };
-
     function render() {
-      /* Base row: UTC hours 0..23. Each column shows its local hour, shaded
-         green when it's daytime everywhere (the overlap). */
       var html = '<div class="meet-row meet-head"><span class="meet-label">UTC</span>';
       for (var h = 0; h < 24; h++) html += '<span class="meet-hr">' + h + '</span>';
       html += '</div>';
-
       columns.forEach(function (col, ci) {
         html += '<div class="meet-row"><span class="meet-label">' +
           col.label + ' <small>' + col.abbrev + '</small>' +
@@ -1530,8 +1632,9 @@
         }
         html += '</div>';
       });
+      html += '<div class="meet-cta"><a class="btn btn-ghost btn-sm" '
+            + 'href="/meeting">Turn this into a shareable plan →</a></div>';
       grid.innerHTML = html;
-
       $$("[data-rm]", grid).forEach(function (b) {
         b.addEventListener("click", function () {
           columns.splice(parseInt(b.getAttribute("data-rm"), 10), 1);
@@ -1541,14 +1644,19 @@
     }
 
     function add() {
-      var city = addInput.value.trim().toLowerCase();
-      var z = CITY_TO_ZONE[city];
-      if (!z) { toast("Try a major city name"); return; }
+      var city = addInput.value.trim();
+      if (!city) return;
       if (columns.length >= 6) { toast("Up to 6 zones"); return; }
-      columns.push({ zone: z[0], label: city.replace(/\b\w/g, function (c) {
-        return c.toUpperCase(); }), offset_hours: z[1], abbrev: "" });
-      addInput.value = "";
-      render();
+      resolveZone(city).then(function (z) {
+        if (!z) { toast("Couldn't find that city — try a major one"); return; }
+        for (var i = 0; i < columns.length; i++) {
+          if (columns[i].zone === z.zone) { addInput.value = ""; return; }
+        }
+        columns.push({ zone: z.zone, label: z.label || city,
+                       offset_hours: z.offset_hours, abbrev: "" });
+        addInput.value = "";
+        render();
+      });
     }
 
     if (addBtn) addBtn.addEventListener("click", add);
@@ -1556,6 +1664,299 @@
       if (e.key === "Enter") { e.preventDefault(); add(); }
     });
     render();
+  });
+
+  /* ============================================== shareable plan page ===== */
+
+  $$("[data-meeting-page]").forEach(function (page) {
+    var mode = page.classList.contains("view-mode") ? "view" : "create";
+    if (mode !== "view") return;
+
+    var state;
+    try { state = JSON.parse(page.getAttribute("data-plan") || "{}"); }
+    catch (e) { state = {}; }
+    var plan = state.plan || {};
+    var slots = state.slots || [];
+    var responses = state.responses || [];
+    var ownerToken = page.getAttribute("data-owner-token") || "";
+    var shareUrl = page.getAttribute("data-share-url") || "";
+    var viewerZone = "";
+    var viewerOffset = 0;          // hours viewer is ahead of the plan owner
+    var ownerOffset = 0;
+    var pick = {};                 // {slotKey: "yes"|"maybe"}
+
+    var aggGrid = $("[data-meet-agg-grid]", page);
+    var pickEl = $("[data-meet-pick]", page);
+    var respName = $("[data-meet-resp-name]", page);
+    var respCity = $("[data-meet-resp-city]", page);
+    var respNote = $("[data-meet-resp-note]", page);
+    var respZoneHint = $("[data-meet-resp-zone-hint]", page);
+    var submitBtn = $("[data-meet-submit-btn]", page);
+    var pickAllBtn = $("[data-meet-pick-all]", page);
+    var pickClearBtn = $("[data-meet-pick-clear]", page);
+    var respSection = $("[data-meet-responses]", page);
+    var respList = $("[data-meet-response-list]", page);
+    var deleteBtn = $("[data-meet-delete]", page);
+    var submitHeading = $("[data-meet-submit-heading]", page);
+
+    /* Group slots by owner-local date for column headers. */
+    var days = [];
+    var byDay = {};
+    slots.forEach(function (s) {
+      if (!byDay[s.owner_date]) { byDay[s.owner_date] = []; days.push(s.owner_date); }
+      byDay[s.owner_date].push(s);
+    });
+
+    function fmtHour(h) {
+      var ampm = h < 12 ? "AM" : "PM";
+      var hh = h % 12 === 0 ? 12 : h % 12;
+      return hh + ":00 " + ampm;
+    }
+
+    /* Render the aggregate grid: rows = respondents, columns = slots.
+       Cells are shaded by availability; a tally row shows the count. */
+    function renderAggregate() {
+      if (!slots.length) {
+        aggGrid.innerHTML = '<p class="answer-detail">No candidate hours. '
+          + 'Edit the plan to widen the date or hour range.</p>';
+        return;
+      }
+      var counts = slots.map(function () { return 0; });
+      var maybeCounts = slots.map(function () { return 0; });
+      responses.forEach(function (r) {
+        var avail;
+        try { avail = JSON.parse(r.slots || "{}"); } catch (e) { avail = {}; }
+        slots.forEach(function (s, i) {
+          if (avail[s.key] === "yes") counts[i]++;
+          else if (avail[s.key] === "maybe") maybeCounts[i]++;
+        });
+      });
+      var total = responses.length;
+
+      var html = '<div class="meet-agg-head">';
+      days.forEach(function (d) {
+        var cols = byDay[d];
+        html += '<div class="meet-agg-day">' + fmtDay(d) +
+          '<div class="meet-agg-hours">';
+        cols.forEach(function (s) {
+          html += '<span class="meet-agg-hr" title="' + s.owner_label + '">'
+            + s.owner_hour + '</span>';
+        });
+        html += '</div></div>';
+      });
+      html += '</div>';
+
+      if (!responses.length) {
+        html += '<p class="answer-detail meet-agg-empty">No one has submitted '
+          + 'yet. Be the first — fill in your availability below.</p>';
+      } else {
+        responses.forEach(function (r) {
+          var avail;
+          try { avail = JSON.parse(r.slots || "{}"); } catch (e) { avail = {}; }
+          html += '<div class="meet-agg-row"><span class="meet-agg-name">'
+            + esc(r.name) + '</span>';
+          days.forEach(function (d) {
+            html += '<div class="meet-agg-cells">';
+            byDay[d].forEach(function (s) {
+              var v = avail[s.key];
+              var cls = "meet-agg-cell" +
+                (v === "yes" ? " yes" : v === "maybe" ? " maybe" : "");
+              html += '<span class="' + cls + '" title="' + s.owner_label
+                + ' · ' + esc(r.name) + '"></span>';
+            });
+            html += '</div>';
+          });
+          html += '</div>';
+        });
+      }
+
+      /* Tally row — brightest cell = best slot. */
+      html += '<div class="meet-agg-tally"><span class="meet-agg-name">Free</span>';
+      days.forEach(function (d) {
+        html += '<div class="meet-agg-cells">';
+        byDay[d].forEach(function (s) {
+          var i = slots.indexOf(s);
+          var c = counts[i] + maybeCounts[i] * 0.5;
+          var ratio = total ? c / total : 0;
+          var best = total && c === Math.max.apply(null, counts) && c > 0;
+          var cls = "meet-agg-tally-cell" + (best ? " best" : "");
+          var label = counts[i] + (maybeCounts[i] ? " (" + maybeCounts[i] + " maybe)" : "");
+          html += '<span class="' + cls + '" style="--r:' + ratio.toFixed(2)
+            + '" title="' + s.owner_label + ' · ' + label + ' of '
+            + total + ' free">' + (c > 0 ? c : '') + '</span>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+
+      aggGrid.innerHTML = html;
+    }
+
+    function fmtDay(d) {
+      var parts = d.split("-");
+      var dt = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+      return dt.toLocaleDateString(undefined, { weekday: "short",
+        month: "short", day: "numeric" });
+    }
+
+    function esc(s) {
+      return (s || "").replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;",
+                 '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    /* Render the per-respondent pick grid in the viewer's local time. */
+    function renderPick() {
+      if (!slots.length) { pickEl.innerHTML = ""; return; }
+      var html = '<div class="meet-pick-head">';
+      days.forEach(function (d) {
+        html += '<div class="meet-pick-day">' + fmtDay(d)
+          + '<div class="meet-pick-hours">';
+        byDay[d].forEach(function (s) {
+          var loc = localLabel(s);
+          html += '<span class="meet-pick-hr" title="' + loc.label + '">'
+            + loc.hour + '</span>';
+        });
+        html += '</div></div>';
+      });
+      html += '</div><div class="meet-pick-body">';
+      days.forEach(function (d) {
+        html += '<div class="meet-pick-cells">';
+        byDay[d].forEach(function (s) {
+          var v = pick[s.key] || "";
+          var loc = localLabel(s);
+          var cls = "meet-pick-cell" + (v === "yes" ? " yes"
+            : v === "maybe" ? " maybe" : "");
+          html += '<button type="button" class="' + cls + '" data-key="'
+            + s.key + '" title="' + loc.label + ' (your time)"></button>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+      pickEl.innerHTML = html;
+      $$("[data-key]", pickEl).forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var k = btn.getAttribute("data-key");
+          pick[k] = pick[k] === "yes" ? "" : pick[k] === "maybe" ? "yes" : "maybe";
+          renderPick();
+        });
+      });
+    }
+
+    /* Convert a slot (owner-local instant) to the viewer's wall clock. */
+    function localLabel(slot) {
+      if (!viewerZone) return { hour: slot.owner_hour, label: slot.owner_label };
+      var utc = slot.key;                  // "YYYY-MM-DDTHH:00" in UTC
+      var p = utc.split("T");
+      var dp = p[0].split("-");
+      var hp = parseInt(p[1], 10);
+      var d = new Date(Date.UTC(+dp[0], +dp[1] - 1, +dp[2], hp));
+      var lab = d.toLocaleString(undefined, { weekday: "short", month: "short",
+        day: "numeric", hour: "2-digit", minute: "2-digit",
+        timeZone: viewerZone });
+      return { hour: d.toLocaleTimeString(undefined, { hour: "numeric",
+        timeZone: viewerZone }).replace(":00", ""), label: lab };
+    }
+
+    function renderResponses() {
+      if (!responses.length) { respSection.hidden = true; return; }
+      respSection.hidden = false;
+      var html = responses.map(function (r) {
+        var n;
+        try { n = Object.keys(JSON.parse(r.slots || "{}")).length; }
+        catch (e) { n = 0; }
+        var when = new Date(r.submitted_at * 1000).toLocaleString();
+        return '<li><span class="meet-resp-name">' + esc(r.name) + '</span>'
+          + '<span class="meet-resp-meta">' + n + ' hour' + (n === 1 ? "" : "s")
+          + (r.city ? ' · ' + esc(r.city) : '')
+          + ' · ' + when + '</span>'
+          + (r.note ? '<span class="meet-resp-note">' + esc(r.note) + '</span>' : "")
+          + '</li>';
+      }).join("");
+      respList.innerHTML = html;
+    }
+
+    function refresh() {
+      fetch("/api/meeting/" + plan.id)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data || !data.plan) return;
+          responses = data.responses || [];
+          renderAggregate();
+          renderResponses();
+        })
+        .catch(function () {});
+    }
+
+    /* Resolve the viewer's zone from their city input. */
+    function detectZone() {
+      var city = respCity.value.trim();
+      if (!city) { viewerZone = ""; viewerOffset = 0;
+        respZoneHint.textContent = ""; renderPick(); return; }
+      resolveZone(city).then(function (z) {
+        if (!z) { viewerZone = "";
+          respZoneHint.textContent = "Couldn't find that city."; renderPick(); return; }
+        viewerZone = z.zone;
+        respZoneHint.textContent = z.label + " · " + z.zone;
+        renderPick();
+      });
+    }
+
+    function submit() {
+      var name = respName.value.trim();
+      if (!name) { toast("Enter your name first"); return; }
+      var keys = Object.keys(pick);
+      if (!keys.length) { toast("Pick at least one hour you're free"); return; }
+      var body = "name=" + encodeURIComponent(name)
+        + "&city=" + encodeURIComponent(respCity.value.trim())
+        + "&note=" + encodeURIComponent(respNote.value.trim())
+        + "&slots=" + encodeURIComponent(JSON.stringify(pick));
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Submitting…";
+      fetch("/meeting/" + plan.id, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body,
+      }).then(function () {
+        submitHeading.textContent = "Thanks — your availability was submitted";
+        submitBtn.textContent = "Submit again";
+        pick = {};
+        renderPick();
+        refresh();
+      }).catch(function () {
+        toast("Couldn't submit — try again");
+      }).finally(function () {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Submit availability";
+      });
+    }
+
+    function deletePlan() {
+      if (!ownerToken || !confirm("Delete this meeting plan? This can't be undone.")) return;
+      fetch("/api/meeting/" + plan.id, { method: "DELETE",
+        headers: { "X-Owner-Token": ownerToken } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.ok) window.location.href = "/meeting";
+          else toast("Couldn't delete — check you still have the owner link");
+        }).catch(function () { toast("Couldn't delete"); });
+    }
+
+    if (respCity) respCity.addEventListener("input", debounce(detectZone, 250));
+    if (submitBtn) submitBtn.addEventListener("click", submit);
+    if (pickAllBtn) pickAllBtn.addEventListener("click", function () {
+      slots.forEach(function (s) { pick[s.key] = "yes"; });
+      renderPick();
+    });
+    if (pickClearBtn) pickClearBtn.addEventListener("click", function () {
+      pick = {}; renderPick();
+    });
+    if (deleteBtn) deleteBtn.addEventListener("click", deletePlan);
+
+    renderAggregate();
+    renderPick();
+    renderResponses();
   });
 
   /* ================================================ scale of universe ===== */

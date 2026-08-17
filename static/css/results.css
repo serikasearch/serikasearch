@@ -19,10 +19,31 @@
   .serp.with-panel {
     grid-template-columns: minmax(0, 1fr) var(--panel-w);
   }
-  .serp-aside { position: sticky; top: calc(var(--header-h) + var(--sp-4)); }
+  /* Pin the rail, but never let a tall widget (a full discography, a long
+     article) run off the bottom of the screen — cap it to the viewport and
+     let the panel scroll within itself instead of making the reader scroll
+     the whole page to reach its end. A short panel neither scrolls nor clips. */
+  .serp-aside {
+    position: sticky;
+    top: calc(var(--header-full) + var(--sp-4));
+    max-height: calc(100dvh - var(--header-full) - var(--sp-6));
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    /* Room so a scrollbar doesn't overlap the panel's rounded corner. */
+    padding-right: 2px;
+  }
 }
 @media (max-width: 1059px) {
-  .serp.with-panel { display: flex; flex-direction: column; }
+  /* `align-items: start` is for the two-column grid; in the stacked flex
+     layout it would size each column to fit-content, and a single wide child
+     then drags the whole column past the gutter. */
+  .serp.with-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
   .serp.with-panel .serp-aside { order: -1; }
 }
 
@@ -36,6 +57,23 @@
   gap: var(--sp-3);
   margin: var(--sp-4) 0;
   min-height: 32px;
+}
+
+/* The filter row is the one thing here that wraps; on a phone it becomes a
+   swipeable strip so the head stays a single line above the results. */
+@media (max-width: 600px) {
+  .serp-head { display: block; margin: var(--sp-3) 0; }
+  .serp-head .result-meta { margin-bottom: var(--sp-2); }
+  .serp-head .filter-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+  .serp-head .filter-bar::-webkit-scrollbar { display: none; }
+  .serp-head .filter-opt,
+  .serp-head .filter-label { flex: none; }
 }
 
 /* ============================================================= filters ==== */
@@ -107,7 +145,7 @@
 .result {
   position: relative;
   min-width: 0;
-  scroll-margin-top: calc(var(--header-h) + var(--sp-6));
+  scroll-margin-top: calc(var(--header-full) + var(--sp-4));
 }
 
 /* Keyboard j/k navigation marks the current card. */
@@ -376,32 +414,6 @@
   overflow: hidden;
 }
 
-.kpanel-sources {
-  display: flex;
-  gap: var(--sp-1);
-  padding: var(--sp-2);
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.kpanel-sources::-webkit-scrollbar { display: none; }
-.ksource {
-  flex: none;
-  padding: 5px 11px;
-  border-radius: var(--r-pill);
-  color: var(--text-3);
-  font-size: var(--fs-xs);
-  font-weight: 550;
-  white-space: nowrap;
-  transition: background var(--t-fast) var(--ease),
-              color var(--t-fast) var(--ease);
-}
-.ksource:hover { background: var(--bg-3); color: var(--text-1); }
-.ksource.active {
-  background: var(--accent-dim);
-  color: var(--accent-4);
-}
-
 .kpanel-img {
   aspect-ratio: 16 / 10;
   background: var(--bg-2);
@@ -411,6 +423,21 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+/* Stacked above the results on a phone, the portrait becomes a full-bleed hero
+   that breaks out of the panel's rounded frame — edge to edge, taller crop. */
+@media (max-width: 1059px) {
+  .kpanel { overflow: visible; }
+  .kpanel-img {
+    aspect-ratio: 16 / 8;
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    border-radius: 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  /* Restore the rounded top on the panel body now the image sits outside it. */
+  .kpanel { border-radius: var(--r-lg); }
 }
 
 .kpanel-body { padding: var(--sp-5); }
@@ -475,6 +502,35 @@
   font-size: var(--fs-sm);
   font-weight: 600;
 }
+
+/* Below the two-column breakpoint the panel sits above the results, where a
+   full-length article summary would push the first result off the screen. The
+   script clamps it there and this button opens it; on wide screens, and with
+   no script, the panel is simply shown in full. */
+.kpanel-more {
+  display: none;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  transition: color var(--t-fast) var(--ease),
+              background var(--t-fast) var(--ease);
+}
+.kpanel-more:hover { color: var(--accent-2); background: var(--surface); }
+.kpanel-more svg { transition: transform var(--t-med) var(--ease); }
+.kpanel.collapsible .kpanel-more { display: flex; }
+.kpanel.clamped .kpanel-body {
+  max-height: 210px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent);
+}
+.kpanel.collapsible:not(.clamped) .kpanel-more svg { transform: rotate(180deg); }
 
 /* ====================================================== instant answers === */
 
@@ -1361,6 +1417,11 @@ button.pt-cell:hover { transform: scale(1.12); z-index: 2; filter: brightness(1.
 .tr-word b { color: var(--text-1); }
 
 /* ---- anime schedule ----------------------------------------------------- */
+.anime-tool { display: flex; flex-direction: column; gap: var(--sp-5); }
+.anime-section h3 {
+  font-size: var(--fs-sm); color: var(--text-2); font-weight: 650;
+  margin-bottom: var(--sp-2); text-transform: uppercase; letter-spacing: 0.04em;
+}
 .anime-list { display: flex; flex-direction: column; gap: var(--sp-1); }
 .anime-row {
   display: flex;
@@ -1390,14 +1451,72 @@ button.pt-cell:hover { transform: scale(1.12); z-index: 2; filter: brightness(1.
   white-space: nowrap;
 }
 .anime-ep { display: block; color: var(--text-4); font-size: var(--fs-xs); }
+.anime-studio { color: var(--text-3); }
 .anime-when {
   flex: none;
   text-align: right;
   color: var(--text-3);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
 }
-.anime-score { display: block; color: var(--warn); }
+.anime-countdown {
+  color: var(--accent-2); font-weight: 650; font-size: var(--fs-xs);
+}
+.anime-date { color: var(--text-4); }
+.anime-score { color: var(--warn); }
+
+/* ---- anime grid (upcoming / trending) ---- */
+.anime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--sp-3);
+}
+.anime-card {
+  display: flex; flex-direction: column;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  transition: border-color var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+}
+.anime-card:hover {
+  border-color: var(--accent-line);
+  transform: translateY(-2px);
+}
+.anime-card-cover {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  background: var(--bg-2);
+  display: block;
+}
+.anime-card-body {
+  padding: var(--sp-2) var(--sp-3);
+  display: flex; flex-direction: column; gap: 2px;
+  flex: 1; min-width: 0;
+}
+.anime-card-title {
+  color: var(--text-1); font-size: var(--fs-sm); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.anime-card-meta { color: var(--text-4); font-size: var(--fs-xs); }
+.anime-card-studio { color: var(--text-3); }
+.anime-card-genres { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.anime-genre {
+  font-size: 10px; color: var(--accent-4);
+  background: var(--accent-dim);
+  padding: 1px 6px; border-radius: var(--r-pill);
+}
+.anime-card-score {
+  position: absolute; top: var(--sp-2); right: var(--sp-2);
+  background: rgba(0,0,0,0.75); color: var(--warn);
+  font-size: var(--fs-xs); font-weight: 650;
+  padding: 2px 6px; border-radius: var(--r-sm);
+  backdrop-filter: blur(4px);
+}
+.anime-card { position: relative; }
 
 /* ---- scale of the universe ---------------------------------------------- */
 .uni-tool { text-align: center; }
@@ -1498,7 +1617,10 @@ button.pt-cell:hover { transform: scale(1.12); z-index: 2; filter: brightness(1.
 }
 .stream-providers { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .stream-provider {
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px 6px 9px;
   border-radius: var(--r-md);
   background: var(--bg-2);
   border: 1px solid var(--border);
@@ -1509,8 +1631,32 @@ button.pt-cell:hover { transform: scale(1.12); z-index: 2; filter: brightness(1.
 a.stream-provider:hover { border-color: var(--accent-line); color: var(--accent-2); }
 
 /* ---- artist card -------------------------------------------------------- */
+/* The head pairs the name block with the folded-in encyclopedia portrait. */
+.artist-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.artist-headings { flex: 1 1 auto; min-width: 0; }
+.artist-portrait {
+  flex: none;
+  width: 92px;
+  height: 92px;
+  border-radius: var(--r-md);
+  object-fit: cover;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+}
 .artist-name { font-size: var(--fs-2xl); margin-bottom: 2px; }
-.artist-meta { color: var(--text-3); font-size: var(--fs-sm); margin-bottom: var(--sp-4); }
+.artist-meta { color: var(--text-3); font-size: var(--fs-sm); }
+.artist-head + .artist-summary,
+.artist-summary {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  margin-bottom: var(--sp-4);
+}
 .artist-genres { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-4); }
 .genre-chip {
   padding: 3px 10px;
@@ -1552,8 +1698,8 @@ a.stream-provider:hover { border-color: var(--accent-line); color: var(--accent-
 .artist-link {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 7px 13px;
+  gap: 7px;
+  padding: 7px 13px 7px 10px;
   border-radius: var(--r-md);
   background: var(--bg-3);
   border: 1px solid var(--border-2);
@@ -1562,6 +1708,21 @@ a.stream-provider:hover { border-color: var(--accent-line); color: var(--accent-
   font-weight: 550;
 }
 .artist-link:hover { background: var(--bg-4); color: var(--accent-2); }
+/* The mark beside an outbound service link: a favicon <img> or a brand-glyph
+   <span>, both boxed to one size so a row of links stays on a tidy baseline
+   whichever kind each one is. Shared by the artist and where-to-watch widgets. */
+.svc-ico {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+.svc-ico.brand { color: var(--text-2); }
+.artist-link:hover .svc-ico.brand,
+a.stream-provider:hover .svc-ico.brand { color: var(--accent-2); }
+img.svc-ico { border-radius: 4px; object-fit: contain; }
 
 /* ---- recipe converter --------------------------------------------------- */
 .recipe-input {

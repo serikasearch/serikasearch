@@ -112,6 +112,7 @@ def cmd_crawl(args) -> int:
             category=category,
             want_images=not args.no_images,
             want_favicons=not args.no_favicons,
+            want_sitemaps=not args.no_sitemaps,
             verbose=not args.quiet,
         )
         if urls:
@@ -171,6 +172,7 @@ def cmd_loop(args) -> int:
                 category=category,
                 want_images=not args.no_images,
                 want_favicons=not args.no_favicons,
+                want_sitemaps=not args.no_sitemaps,
                 verbose=not args.quiet,
             )
             if urls:
@@ -357,6 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--timeout", type=float, default=12.0, help="request timeout")
     c.add_argument("--no-images", action="store_true", help="skip image indexing")
     c.add_argument("--no-favicons", action="store_true", help="skip favicon fetching")
+    c.add_argument("--no-sitemaps", action="store_true",
+                   help="skip sitemap.xml discovery")
     c.add_argument("--quiet", action="store_true", help="suppress per-page logging")
     c.set_defaults(func=cmd_crawl)
 
@@ -375,6 +379,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="seconds to wait when frontier is empty (default: 60)")
     lp.add_argument("--no-images", action="store_true", help="skip image indexing")
     lp.add_argument("--no-favicons", action="store_true", help="skip favicon fetching")
+    lp.add_argument("--no-sitemaps", action="store_true",
+                    help="skip sitemap.xml discovery")
     lp.add_argument("--quiet", action="store_true", help="suppress per-page logging")
     lp.set_defaults(func=cmd_loop)
 

@@ -33,8 +33,8 @@ from urllib.parse import urlsplit
 
 from .db import Index
 
-__all__ = ["KnowledgeCard", "DictionaryEntry", "build_card", "define",
-           "SOURCES", "SOURCE_LABELS"]
+__all__ = ["KnowledgeCard", "DictionaryEntry", "build_card", "card_relevant",
+           "define", "SOURCES", "SOURCE_LABELS"]
 
 _TIMEOUT = 6.0
 _UA = ("serikasearch/1.1 (knowledge panel; +https://serikasearch.com/about)")
@@ -539,6 +539,30 @@ def build_card(index: Index, query: str,
 
     card.available = list(SOURCES)
     return card
+
+
+def card_relevant(query: str, card) -> bool:
+    """Whether a knowledge panel is genuinely about the query.
+
+    The article lookup matches on loose token overlap, which is what you want
+    for *finding* an article but not for *deciding to show a panel*: "best
+    laptop 2026" shouldn't surface the "Laptop" article, nor "how to boil an
+    egg" the "Boiled egg" one. The panel earns its place only when the query
+    essentially is the article's subject — the title (minus any parenthetical
+    disambiguation) and the query differ by at most one incidental word.
+    """
+    if card is None:
+        return False
+    title_main = (getattr(card, "title", "") or "").split("(")[0]
+    q = set(_tokens(query))
+    t = set(_tokens(title_main))
+    if not q or not t:
+        return False
+    if q == t:
+        return True
+    if len(q & t) < min(len(q), len(t)):   # smaller side not fully contained
+        return False
+    return len(q - t) <= 1 and len(t - q) <= 1
 
 
 # --------------------------------------------------------------------------- #

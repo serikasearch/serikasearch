@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import threading
 import time
 from dataclasses import dataclass
@@ -189,6 +190,39 @@ CREATE INDEX IF NOT EXISTS idx_documents_title_prefix
     ON documents (lower(title) text_pattern_ops);
 
 CREATE INDEX IF NOT EXISTS idx_documents_fetched ON documents(fetched_at DESC);
+
+-- Shareable meeting planner. A plan is a one-time link the creator sends
+-- around; each recipient submits their availability as one row. Plans expire
+-- (expires_at = 0 means never) and are owned by a separate token so only the
+-- creator can delete or rotate the link.
+CREATE TABLE IF NOT EXISTS meeting_plans (
+    id           TEXT PRIMARY KEY,
+    owner_token  TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    note         TEXT DEFAULT '',
+    owner_name   TEXT DEFAULT '',
+    owner_city   TEXT DEFAULT '',
+    owner_zone   TEXT DEFAULT '',
+    date_start   TEXT NOT NULL,
+    date_end     TEXT NOT NULL,
+    hour_start   INTEGER NOT NULL DEFAULT 8,
+    hour_end     INTEGER NOT NULL DEFAULT 22,
+    created_at   DOUBLE PRECISION NOT NULL,
+    expires_at   DOUBLE PRECISION DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS meeting_responses (
+    id           TEXT PRIMARY KEY,
+    plan_id      TEXT NOT NULL REFERENCES meeting_plans(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    city         TEXT DEFAULT '',
+    zone         TEXT NOT NULL,
+    slots        TEXT NOT NULL DEFAULT '{}',
+    note         TEXT DEFAULT '',
+    submitted_at DOUBLE PRECISION NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_meeting_responses_plan ON meeting_responses(plan_id);
 """
 
 
@@ -323,13 +357,17 @@ class Index:
         if conn is None or conn.closed:
             conn = self._borrow()
             conn.autocommit = False
-            # Prefer GIN index scans over sequential scans for FTS queries.
-            # On small tables PostgreSQL defaults to seq scan which is 100x
-            # slower for tsvector matches.
-            with conn.cursor() as cur:
-                cur.execute("SET enable_seqscan = off")
-                cur.execute("SET jit = off")
-            conn.commit()
+            # Set session-level performance options once per connection.
+            # Tracked via a thread-local flag so we don't re-run SET on every
+            # borrow (the web server creates a new thread per request, so this
+            # still runs once per request — but only once, not on every
+            # _get_conn call within a request).
+            if not getattr(self._local, "tuned", False):
+                with conn.cursor() as cur:
+                    cur.execute("SET enable_seqscan = off")
+                    cur.execute("SET jit = off")
+                conn.commit()
+                self._local.tuned = True
             self._local.conn = conn
         return conn
 
@@ -1348,6 +1386,102 @@ class Index:
             except: pass
         return result
 
+    def count_all_matches(self, query, freshness: str = "") -> dict:
+        """Count web, image, and video matches in a single DB round-trip.
+
+        Returns ``{"web": int, "images": int, "videos": int}``. This replaces
+        the three separate count calls the search page used to make, cutting
+        two DB round-trips per search — the single biggest latency win for
+        the results page.
+        """
+        parsed = query if isinstance(query, ParsedQuery) else parse(query)
+        fts = parsed.fts
+        all_sites = list(parsed.sites)
+        site_sql, site_params = self._site_clause(all_sites)
+        fresh_sql, fresh_params = self._freshness_clause(freshness)
+
+        # Redis cache for the combined result.
+        cache_key = f"allcounts:{hashlib.md5(f'{fts}|{all_sites}|{parsed.intitle}|{parsed.inurl}|{freshness}'.encode()).hexdigest()}"
+        if self._redis:
+            cached = self._redis.get(cache_key)
+            if cached is not None:
+                try:
+                    import json as _json
+                    return {k: int(v) for k, v in
+                            _json.loads(cached).items()}
+                except Exception:
+                    pass
+
+        web_count = 0
+        image_count = 0
+        video_count = 0
+
+        if fts:
+            intitle_sql = ""
+            intitle_params: list = []
+            for w in parsed.intitle:
+                intitle_sql += " AND d.title ILIKE %s"
+                intitle_params.append(f"%{w}%")
+            inurl_sql = ""
+            inurl_params: list = []
+            for w in parsed.inurl:
+                inurl_sql += " AND d.url ILIKE %s"
+                inurl_params.append(f"%{w}%")
+
+            doc_sql = ("SELECT COUNT(*) FROM documents d "
+                       "WHERE d.tsv @@ websearch_to_tsquery('english', %s)"
+                       + site_sql + intitle_sql + inurl_sql + fresh_sql)
+            doc_params = ([fts] + site_params + intitle_params
+                          + inurl_params + fresh_params)
+
+            img_sql = ("SELECT COUNT(*) FROM images i "
+                       "WHERE i.tsv @@ websearch_to_tsquery('english', %s) "
+                       "AND (i.width > 0 AND i.height > 0)")
+            img_params: list = [fts]
+            if all_sites:
+                likes = " OR ".join("i.host ILIKE %s" for _ in all_sites)
+                img_sql += f" AND ({likes})"
+                img_params += [f"%{s}%" for s in all_sites]
+
+            vid_sql = ("SELECT COUNT(*) FROM videos v "
+                       "WHERE v.tsv @@ websearch_to_tsquery('english', %s)")
+            vid_params: list = [fts]
+
+            conn = self._get_conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(doc_sql, doc_params)
+                    web_count = cur.fetchone()[0]
+                    cur.execute(img_sql, img_params)
+                    image_count = cur.fetchone()[0]
+                    cur.execute(vid_sql, vid_params)
+                    video_count = cur.fetchone()[0]
+            except Exception:
+                conn.rollback()
+        else:
+            # No FTS — only site-scoped document count.
+            if all_sites:
+                sql = ("SELECT COUNT(*) FROM documents d WHERE 1=1"
+                       + site_sql + fresh_sql)
+                conn = self._get_conn()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(sql, site_params + fresh_params)
+                        web_count = cur.fetchone()[0]
+                except Exception:
+                    conn.rollback()
+
+        result = {"web": web_count, "images": image_count,
+                  "videos": video_count}
+        if self._redis:
+            try:
+                import json as _json
+                self._redis.setex(cache_key, 300,
+                                  _json.dumps(result))
+            except Exception:
+                pass
+        return result
+
     # ----- rich page metadata ----------------------------------------------
 
     def set_page_meta(self, url: str, host: str, meta: dict,
@@ -1563,6 +1697,149 @@ class Index:
                 request_id = cur.fetchone()[0]
             conn.commit()
             return request_id
+        except Exception:
+            conn.rollback()
+            raise
+
+    # ----- meeting planner -------------------------------------------------
+
+    def create_meeting_plan(self, title: str, note: str, owner_name: str,
+                            owner_city: str, owner_zone: str,
+                            date_start: str, date_end: str,
+                            hour_start: int, hour_end: int,
+                            ttl_days: int = 0) -> tuple[str, str]:
+        """Insert a plan and return (plan_id, owner_token).
+
+        ``ttl_days`` of 0 means the link never expires; otherwise the expiry
+        is recorded as a unix timestamp the renderer can compare against.
+        """
+        plan_id = secrets.token_urlsafe(8)[:10]
+        owner_token = secrets.token_urlsafe(16)[:22]
+        now = time.time()
+        expires = now + ttl_days * 86400 if ttl_days and ttl_days > 0 else 0
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO meeting_plans
+                       (id, owner_token, title, note, owner_name, owner_city,
+                        owner_zone, date_start, date_end, hour_start, hour_end,
+                        created_at, expires_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (plan_id, owner_token, title[:200], note[:1000],
+                     owner_name[:120], owner_city[:120], owner_zone[:64],
+                     date_start[:10], date_end[:10],
+                     int(hour_start), int(hour_end), now, expires),
+                )
+            conn.commit()
+            return plan_id, owner_token
+        except Exception:
+            conn.rollback()
+            raise
+
+    def get_meeting_plan(self, plan_id: str) -> Optional[dict]:
+        conn = self._get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, owner_token, title, note, owner_name, owner_city,
+                          owner_zone, date_start, date_end, hour_start,
+                          hour_end, created_at, expires_at
+                   FROM meeting_plans WHERE id=%s LIMIT 1""",
+                (plan_id[:64],),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "owner_token": row[1], "title": row[2],
+            "note": row[3] or "", "owner_name": row[4] or "",
+            "owner_city": row[5] or "", "owner_zone": row[6] or "",
+            "date_start": row[7], "date_end": row[8],
+            "hour_start": row[9], "hour_end": row[10],
+            "created_at": row[11], "expires_at": row[12] or 0,
+        }
+
+    def delete_meeting_plan(self, plan_id: str, owner_token: str) -> bool:
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM meeting_plans WHERE id=%s AND owner_token=%s",
+                    (plan_id[:64], owner_token[:64]),
+                )
+                deleted = cur.rowcount > 0
+            conn.commit()
+            return deleted
+        except Exception:
+            conn.rollback()
+            raise
+
+    def list_meeting_responses(self, plan_id: str) -> list[dict]:
+        conn = self._get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, name, city, zone, slots, note, submitted_at
+                   FROM meeting_responses WHERE plan_id=%s
+                   ORDER BY submitted_at ASC""",
+                (plan_id[:64],),
+            )
+            rows = cur.fetchall()
+        return [{
+            "id": r[0], "name": r[1], "city": r[2] or "", "zone": r[3],
+            "slots": r[4] or "{}", "note": r[5] or "",
+            "submitted_at": r[6],
+        } for r in rows]
+
+    def add_meeting_response(self, plan_id: str, name: str, city: str,
+                             zone: str, slots_json: str, note: str) -> str:
+        resp_id = secrets.token_urlsafe(10)[:16]
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO meeting_responses
+                       (id, plan_id, name, city, zone, slots, note, submitted_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (resp_id, plan_id[:64], name[:120], city[:120],
+                     zone[:64], slots_json[:20000], note[:500], time.time()),
+                )
+            conn.commit()
+            return resp_id
+        except Exception:
+            conn.rollback()
+            raise
+
+    def get_meeting_response(self, response_id: str) -> Optional[dict]:
+        conn = self._get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, plan_id, name, city, zone, slots, note, submitted_at
+                   FROM meeting_responses WHERE id=%s LIMIT 1""",
+                (response_id[:64],),
+            )
+            r = cur.fetchone()
+        if not r:
+            return None
+        return {
+            "id": r[0], "plan_id": r[1], "name": r[2], "city": r[3] or "",
+            "zone": r[4], "slots": r[5] or "{}", "note": r[6] or "",
+            "submitted_at": r[7],
+        }
+
+    def update_meeting_response(self, response_id: str, slots_json: str,
+                                note: str) -> bool:
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE meeting_responses SET slots=%s, note=%s, submitted_at=%s "
+                    "WHERE id=%s",
+                    (slots_json[:20000], note[:500], time.time(),
+                     response_id[:64]),
+                )
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
         except Exception:
             conn.rollback()
             raise

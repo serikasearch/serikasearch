@@ -22,7 +22,8 @@ except ImportError:  # pragma: no cover — Python < 3.9
         return set()
 
 __all__ = ["WorldTime", "parse_time_query", "DateDiff", "parse_date_query",
-           "parse_timestamp_query"]
+           "parse_timestamp_query", "resolve_zone", "zone_offset_hours",
+           "meeting_slots", "slot_local_label"]
 
 
 # --------------------------------------------------------------------------- #
@@ -531,3 +532,118 @@ def meeting_columns(zones: list[str]) -> list[dict]:
             "abbrev": now.strftime("%Z"),
         })
     return out
+
+
+# --------------------------------------------------------------------------- #
+# shareable meeting planner — zone resolution + slot math
+# --------------------------------------------------------------------------- #
+#
+# ``resolve_zone`` is the public face of ``_resolve_zone``: it accepts anything
+# a person might type ("Amsterdam", "nyc", "Asia/Kolkata", "cest") and returns
+# the IANA zone name or None. The meeting planner's city input calls this via
+# /api/zone, which is why a typed city now resolves through the full CITY_ZONES
+# table plus the IANA fallback instead of a tiny client-side map.
+
+def resolve_zone(place: str) -> str | None:
+    """Resolve a free-form place string to an IANA zone name, or None."""
+    return _resolve_zone(place)
+
+
+def zone_offset_hours(zone_name: str, at: "datetime | None" = None) -> float:
+    """Current (or at-moment) UTC offset for a zone, in hours.
+
+    DST-correct: passing ``at`` lets the planner compute the offset that will
+    apply on a specific future date, not just right now.
+    """
+    if ZoneInfo is None or not zone_name:
+        return 0.0
+    try:
+        tz = ZoneInfo(zone_name)
+    except Exception:
+        return 0.0
+    moment = at or datetime.now(tz)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=tz)
+    offset = moment.utcoffset() or timedelta(0)
+    return offset.total_seconds() / 3600.0
+
+
+def _parse_iso_date(s: str) -> date:
+    """Parse a strict YYYY-MM-DD date (used by the meeting planner)."""
+    y, m, d = (int(x) for x in s.strip().split("-"))
+    return date(y, m, d)
+
+
+def meeting_slots(date_start: str, date_end: str, hour_start: int,
+                  hour_end: int, owner_zone: str) -> list[dict]:
+    """Build the candidate slots for a plan, in the owner's local frame.
+
+    Each slot is one hour. The grid is laid out as owner-local days × owner-
+    local hours, so the columns line up for every viewer. Each slot carries
+    its UTC instant (``utc``, the stable key responses store availability
+    against) and the owner-local label, so the aggregate view can render
+    without knowing any other zone.
+
+    Caps at 240 slots (≈ 16 days × 15 hours) to keep payloads sane.
+    """
+    if ZoneInfo is None:
+        return []
+    try:
+        tz = ZoneInfo(owner_zone) if owner_zone else timezone.utc
+    except Exception:
+        tz = timezone.utc
+    h0 = max(0, min(23, int(hour_start)))
+    h1 = max(h0, min(23, int(hour_end)))
+    hours = list(range(h0, h1 + 1))
+    try:
+        start = _parse_iso_date(date_start)
+        end = _parse_iso_date(date_end)
+    except Exception:
+        return []
+    if end < start:
+        end = start
+
+    slots: list[dict] = []
+    day = start
+    while day <= end and len(slots) < 240:
+        for h in hours:
+            local_dt = datetime(day.year, day.month, day.day, h, 0,
+                                tzinfo=tz)
+            utc_dt = local_dt.astimezone(timezone.utc)
+            slots.append({
+                "key": utc_dt.strftime("%Y-%m-%dT%H:00"),
+                "owner_date": day.isoformat(),
+                "owner_hour": h,
+                "owner_label": f"{day.strftime('%a %-d %b')} {h:02d}:00",
+            })
+            if len(slots) >= 240:
+                break
+        day += timedelta(days=1)
+    return slots
+
+
+def slot_local_label(utc_key: str, viewer_zone: str) -> dict:
+    """Convert a slot's UTC instant into a viewer's local clock label.
+
+    Returns ``{date, hour, label, offset_hours}``. Used by the submission
+    form so each respondent sees their own wall-clock time per cell while the
+    underlying key stays the shared UTC instant.
+    """
+    if ZoneInfo is None or not viewer_zone:
+        return {"date": "", "hour": 0, "label": "—", "offset_hours": 0.0}
+    try:
+        tz = ZoneInfo(viewer_zone)
+    except Exception:
+        return {"date": "", "hour": 0, "label": "—", "offset_hours": 0.0}
+    try:
+        utc_dt = datetime.strptime(utc_key, "%Y-%m-%dT%H:00")
+    except ValueError:
+        return {"date": "", "hour": 0, "label": "—", "offset_hours": 0.0}
+    local_dt = utc_dt.replace(tzinfo=timezone.utc).astimezone(tz)
+    return {
+        "date": local_dt.strftime("%Y-%m-%d"),
+        "hour": local_dt.hour,
+        "label": local_dt.strftime("%a %-d %b %H:00"),
+        "offset_hours": (local_dt.utcoffset() or timedelta(0))
+                        .total_seconds() / 3600.0,
+    }

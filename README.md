@@ -12,7 +12,7 @@ SerikaSearch/
     __main__.py        # CLI: serve, crawl, loop, search, images, enrich, block, icons, stats
     core/
       db.py            # PostgreSQL + Redis backend, pooling, opt-out, suggestions
-      crawler.py       # Polite robots-respecting crawler
+      crawler.py       # Polite robots-respecting crawler (+ sitemap discovery)
       parser.py        # HTML parser (text, images, videos, links, headings)
       unfurl.py        # Open Graph / Twitter card / JSON-LD / oEmbed, + safe fetcher
       query.py         # Google-style query parser

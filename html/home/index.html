@@ -3,9 +3,12 @@
     <h1 class="home-h1"><a href="/" class="logo logo-lg">serika<em>search</em></a></h1>
     <p class="home-sub">independent search · own crawler, own index, no tracking</p>
     <div class="home-search">{{ searchbox|safe }}</div>
-    <div class="home-hints">{{ hints|safe }}</div>
     <div class="recent-row" id="recentRow" hidden></div>
-    <div class="home-stats">
+    <div class="home-hints">{{ hints|safe }}</div>
+  </div>
+
+  <div class="home-foot">
+    <p class="home-stats">
       <span class="stat"><b>{{ pages }}</b> pages</span>
       <span class="stat-dot"></span>
       <span class="stat"><b>{{ images }}</b> images</span>
@@ -13,12 +16,8 @@
       <span class="stat"><b>{{ videos }}</b> videos</span>
       <span class="stat-dot"></span>
       <span class="stat"><b>{{ sites }}</b> sites</span>
-    </div>
+    </p>
+    <a class="home-more" href="/tools">Calculators, converters and instant answers</a>
   </div>
-
-  <section class="home-tools">
-    <h2>Answers without leaving the page</h2>
-    <div class="tool-strip">{{ tools|safe }}</div>
-  </section>
 </main>
 {% include "components/footer.html" %}

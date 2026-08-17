@@ -53,25 +53,40 @@ _TOOL_WIDGET = {"scale-of-universe": "universe", "luggage": "luggage",
 # Music-intent keywords: when a Wikipedia panel's description contains one of
 # these, the page also fetches a MusicBrainz artist card.
 _MUSIC_WORDS = re.compile(
-    r"\b(singer|songwriter|rapper|musician|band|duo|group|producer|"
+    r"\b(singer|songwriter|rapper|musician|band|duo|producer|"
     r"vocalist|guitarist|drummer|dj|composer|virtual youtuber|vtuber|"
     r"idol|girl group|boy band|record producer)\b", re.I)
+
+# Entities that contain music keywords but are NOT musicians — animation
+# studios, film companies, game studios, record labels as organisations.
+# Without this exclusion, "Studio Ghibli" matches "studio" and triggers a
+# MusicBrainz lookup that returns the unrelated "Ghibli Melodies" cover group.
+_NON_ARTIST_WORDS = re.compile(
+    r"\b(animation\s+studio|film\s+studio|game\s+studio|"
+    r"record\s+label|production\s+company|entertainment\s+company|"
+    r"media\s+franchise|film\s+series|television\s+series|"
+    r"video\s+game\s+(?:series|franchise|company)|"
+    r"publishing\s+company)\b", re.I)
+
+# A name that looks like a studio/production company rather than an artist.
+_STUDIO_NAME_RE = re.compile(
+    r"^(studio|production[s]?|entertainment|games?|pictures|"
+    r"animation|films?|records?|music)\s", re.I)
 # Explicit music queries: "<name> discography/albums/tour/songs/concerts".
 _ARTIST_INTENT = re.compile(
     r"^(.+?)\s+(discography|albums?|songs?|tour|tours|concerts?|"
     r"setlist|setlists|tickets?)\s*$", re.I)
 
-# Example searches under the home-page search box: one per kind of answer, so
-# the range of the thing is visible without reading documentation.
+# Example searches under the home-page search box — anime titles that also show
+# off the live-data answers (airing schedule, where-to-watch, artist panels).
+# CSS trims the tail on narrower screens, so keep the strongest ones first.
 HOME_HINTS = [
-    ("1 + 1", "1+1"),
-    ("5 km to miles", "5 km to miles"),
-    ("weather in tokyo", "weather in tokyo"),
-    ("100 usd to eur", "100 usd to eur"),
-    ("define serendipity", "define serendipity"),
-    ("#a274ff", "#a274ff"),
-    ("days until christmas", "days until christmas"),
-    ("time in tokyo", "time in tokyo"),
+    ("Frieren", "Frieren"),
+    ("Chainsaw Man", "Chainsaw Man"),
+    ("One Piece", "One Piece"),
+    ("Jujutsu Kaisen", "Jujutsu Kaisen"),
+    ("Spy x Family", "Spy x Family"),
+    ("Studio Ghibli", "Studio Ghibli"),
 ]
 
 # Frames are only ever loaded from the two video providers we embed.
@@ -194,14 +209,31 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    def do_DELETE(self):
+        parsed = urlsplit(self.path)
+        route = parsed.path.rstrip("/") or "/"
+        try:
+            if route.startswith("/api/meeting/"):
+                self._api_meeting_delete(route[len("/api/meeting/"):])
+            else:
+                self._send_json({"error": "unknown endpoint"}, status=404)
+        except Exception:
+            self._send_json({"error": "something went wrong"}, status=500)
+        finally:
+            self.index.release()
+
     def do_POST(self):
         parsed = urlsplit(self.path)
         route = parsed.path.rstrip("/") or "/"
-        if route != "/how-to-opt-out":
-            self._send_html(self._error_page("404", "page not found"), 404)
-            return
         try:
-            self._post_optout()
+            if route == "/how-to-opt-out":
+                self._post_optout()
+            elif route == "/meeting":
+                self._post_meeting()
+            elif route.startswith("/meeting/"):
+                self._post_meeting_response(route[len("/meeting/"):])
+            else:
+                self._send_html(self._error_page("404", "page not found"), 404)
         except Exception:
             self._send_html(self._error_page("500", "something went wrong"), 500)
         finally:
@@ -217,8 +249,18 @@ class Handler(BaseHTTPRequestHandler):
         # --- tools --------------------------------------------------------
         elif route == "/tools":
             self._tools_index()
+        elif route == "/tools/meeting-planner":
+            # The meeting planner is now a shareable, link-based flow rather
+            # than a single-user widget, so the tool page redirects to it.
+            self._redirect("/meeting")
         elif route.startswith("/tools/"):
             self._tool_page(route[len("/tools/"):], params)
+
+        # --- meeting planner (shareable link flow) ------------------------
+        elif route == "/meeting":
+            self._meeting_page(params)
+        elif route.startswith("/meeting/"):
+            self._meeting_view(route[len("/meeting/"):], params)
 
         # --- info & legal -------------------------------------------------
         elif route == "/bangs":
@@ -312,15 +354,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_html(self._web_results(
                 q, page,
                 freshness=_str_param(params, "when", limit=12),
-                source=_str_param(params, "src", limit=20),
             ))
 
     def _counts(self, parsed, freshness: str = "") -> dict:
-        return {
-            "web": self.index.count_matches(parsed, freshness=freshness),
-            "images": self.index.count_image_matches(parsed),
-            "videos": self.index.count_video_matches(parsed),
-        }
+        return self.index.count_all_matches(parsed, freshness=freshness)
 
     def _instant_answer(self, q: str) -> str:
         """The answer strip above results — a dictionary entry, or a tool."""
@@ -336,12 +373,14 @@ class Handler(BaseHTTPRequestHandler):
         })
         return R.answer_card(answer)
 
-    def _artist_card(self, q: str, parsed, knowledge_card) -> str:
-        """A MusicBrainz artist card when the query is about a musician.
+    def _resolve_artist(self, q: str, parsed, knowledge_card):
+        """The MusicBrainz artist card when the query is about a musician.
 
         Triggered explicitly ("<name> discography/tour/…") or implicitly when
-        the knowledge panel's summary describes a musician. Kept off the path
-        for ordinary queries so most searches never pay for the lookup.
+        the encyclopedia card's summary describes a musician. Returns the raw
+        card (or None) so the caller can fold in the encyclopedia material and
+        render one combined panel. Kept off the path for ordinary queries so
+        most searches never pay for the lookup.
         """
         from ..tools import music
 
@@ -350,23 +389,50 @@ class Handler(BaseHTTPRequestHandler):
         if intent:
             name = intent.group(1).strip()
         elif knowledge_card is not None:
+            title = getattr(knowledge_card, "title", "") or ""
             summary = (getattr(knowledge_card, "summary", "") or "")[:400]
             facts = " ".join(v for _, v in getattr(knowledge_card, "facts", []))
-            if _MUSIC_WORDS.search(summary + " " + facts):
-                name = knowledge_card.title
+            text = summary + " " + facts
+            # An animation studio / film company / game studio is not a
+            # musician even if its description mentions "studio" or "music".
+            if _NON_ARTIST_WORDS.search(text) or _STUDIO_NAME_RE.match(title):
+                return None
+            if _MUSIC_WORDS.search(text):
+                name = title
         if not name or len(name) < 2:
-            return ""
+            return None
 
         try:
             card = music.lookup_artist(name)
         except Exception:
-            return ""
-        if card is None:
-            return ""
-        return R.artist_card(card)
+            return None
+        # Guard against MusicBrainz returning a *different* entity — e.g. the
+        # piano-cover group "Ghibli Melodies" for a "Studio Ghibli" query.
+        # If the returned name shares no significant words with the query, the
+        # match is too loose to trust.
+        if card is not None:
+            from difflib import SequenceMatcher
+            ratio = SequenceMatcher(None, name.lower(),
+                                    (card.name or "").lower()).ratio()
+            # Word overlap, ignoring generic words that don't identify an
+            # entity ("studio", "the", "group", "band", …).
+            _GENERIC = {"the", "a", "an", "studio", "group", "band",
+                        "official", "music", "records"}
+            query_words = {w for w in name.lower().split()
+                           if w not in _GENERIC and len(w) > 1}
+            card_words = {w for w in (card.name or "").lower().split()
+                          if w not in _GENERIC and len(w) > 1}
+            if query_words:
+                overlap = len(query_words & card_words) / len(query_words)
+            else:
+                overlap = 1.0
+            # Reject if the names are clearly different entities: low string
+            # similarity AND no significant shared identifying word.
+            if ratio < 0.55 and overlap < 1.0:
+                return None
+        return card
 
-    def _web_results(self, q: str, page: int, freshness: str = "",
-                     source: str = "") -> str:
+    def _web_results(self, q: str, page: int, freshness: str = "") -> str:
         parsed = parse_query(q)
         if parsed.is_empty:
             return self._home()
@@ -375,26 +441,53 @@ class Handler(BaseHTTPRequestHandler):
             freshness = ""
 
         offset = (page - 1) * PAGE_SIZE
-        total = self.index.count_matches(parsed, freshness=freshness)
+        # Single DB round-trip for all three counts instead of three separate
+        # queries — the biggest latency win for the results page.
+        counts = self.index.count_all_matches(parsed, freshness=freshness)
+        total = counts["web"]
         results = self.index.search(parsed, PAGE_SIZE, offset,
                                     freshness=freshness)
-        counts = {
-            "web": total,
-            "images": self.index.count_image_matches(parsed),
-            "videos": self.index.count_video_matches(parsed),
-        }
         header = R.header(q, "web", parsed, counts)
         answer_html = self._instant_answer(q)
+        has_instant = bool(answer_html.strip())
         filters = R.freshness_filters(q, "web", freshness)
 
-        # An explicit "<name> discography/tour/…" often has no web results (the
-        # keyword narrows the index), so resolve the artist card before the
-        # empty-results check — otherwise it would be lost.
-        if page == 1 and _ARTIST_INTENT.match(q.strip()):
-            answer_html = self._artist_card(q, parsed, None) + answer_html
+        # Subject material, resolved once for page 1. A plain instant answer
+        # (weather, currency, a definition) owns the page on its own, so we
+        # skip the encyclopedia work entirely — that's what stops a query like
+        # "weather in tokyo" from showing the forecast beside a Tokyo article.
+        subject_ok = (parsed.fts and not parsed.has_operators
+                      and page == 1 and not has_instant)
+        kcard = reference.build_card(self.index, q) if subject_ok else None
 
+        # A musician gets one combined panel: the MusicBrainz card with the
+        # encyclopedia portrait and summary folded in. When the query narrows
+        # too far to match an article ("ado discography"), fetch one on the
+        # clean artist name so the merged panel still gets its portrait.
+        artist = None
+        if page == 1 and not has_instant:
+            artist = self._resolve_artist(q, parsed, kcard)
+            if artist is not None and kcard is None:
+                kcard = reference.build_card(self.index, artist.name)
+
+        # The merged artist card and the encyclopedia panel share the aside —
+        # the same spot, one at a time. The artist card wins when present.
+        panel_html = ""
+        if artist is not None:
+            panel_html = R.artist_card(artist, kcard)
+        elif kcard is not None and reference.card_relevant(q, kcard):
+            # Only when the article is genuinely about the query — otherwise a
+            # loose token match drops a tangential panel ("Laptop" for "best
+            # laptop 2026", "Boiled egg" for "how to boil an egg").
+            panel_html = R.knowledge_panel(kcard, q)
+        serp_mod = "with-panel" if panel_html else ""
+
+        # An explicit "<name> discography/tour/…" often has no web results of
+        # its own, so the artist card (which lives in the aside) has to carry
+        # the empty page on its own in the main column.
         if not results:
-            return self._empty_web(q, header, answer_html, filters, freshness)
+            return self._empty_web(q, header, panel_html + answer_html,
+                                   filters, freshness)
 
         metas = self.index.page_meta([r.url for r in results])
         cards = R.result_cards(results, metas, new_tab=self._new_tab())
@@ -402,23 +495,6 @@ class Handler(BaseHTTPRequestHandler):
 
         meta_line = (f'{total:,} result{"" if total == 1 else "s"} '
                      f'for &ldquo;{html.escape(q)}&rdquo;')
-
-        # The knowledge panel is for genuine subject queries — an operator-only
-        # or site-scoped query is browsing, not asking about a thing.
-        panel_html = ""
-        serp_mod = ""
-        if parsed.fts and not parsed.has_operators and page == 1:
-            card = reference.build_card(self.index, q, source)
-            if card:
-                panel_html = R.knowledge_panel(card, q)
-                serp_mod = "with-panel"
-            # Enrich musicians with a MusicBrainz card (discography, links).
-            # The explicit-intent case is already handled above the results
-            # check, so here we only do the implicit (panel-says-musician) path.
-            if not _ARTIST_INTENT.match(q.strip()):
-                artist_html = self._artist_card(q, parsed, card)
-                if artist_html:
-                    answer_html = artist_html + answer_html
 
         related = ""
         if page == 1 and parsed.fts:
@@ -603,8 +679,7 @@ class Handler(BaseHTTPRequestHandler):
         body = render("home/index.html", {
             "searchbox": R.searchbox(autofocus=True,
                                      placeholder="Search the web, or ask a question"),
-            "hints": R.hint_chips(HOME_HINTS[:5]),
-            "tools": R.home_tool_strip(12),
+            "hints": R.hint_chips(HOME_HINTS),
             "pages": f"{self.index.document_count():,}",
             "images": f"{self.index.image_count():,}",
             "videos": f"{self.index.video_count():,}",
@@ -843,11 +918,261 @@ class Handler(BaseHTTPRequestHandler):
             "done.</div>"
         )
 
+    # ======================================================================= #
+    # meeting planner (shareable link flow)
+    # ======================================================================= #
+
+    def _meeting_page(self, params: dict) -> None:
+        """GET /meeting — the create-a-plan landing page."""
+        self._send_html(R.meeting_create_page())
+
+    def _post_meeting(self) -> None:
+        """POST /meeting — validate and create a plan, redirect to its view."""
+        if not self.form_limiter.allow(self._client_ip()):
+            self._send_html(R.meeting_create_page(
+                '<div class="notice bad">Too many requests from this address. '
+                "Please wait a few minutes and try again.</div>"), status=429)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0 or length > 16384:
+            self._send_html(R.meeting_create_page(
+                '<div class="notice bad">That request was empty or too '
+                "large.</div>"), status=400)
+            return
+        raw = self.rfile.read(length).decode("utf-8", "replace")
+        fields = parse_qs(raw, keep_blank_values=True)
+
+        title = _str_param(fields, "title", limit=200)
+        note = _str_param(fields, "note", limit=1000)
+        owner_name = _str_param(fields, "owner_name", limit=120)
+        owner_city = _str_param(fields, "owner_city", limit=120)
+        date_start = _str_param(fields, "date_start", limit=10)
+        date_end = _str_param(fields, "date_end", limit=10)
+        hour_start = _int_param(fields, "hour_start", 9, 0, 23)
+        hour_end = _int_param(fields, "hour_end", 18, 0, 23)
+
+        values = {"title": title, "note": note, "owner_name": owner_name,
+                  "owner_city": owner_city, "date_start": date_start,
+                  "date_end": date_end, "hour_start": hour_start,
+                  "hour_end": hour_end}
+
+        if not title:
+            self._send_html(R.meeting_create_page(
+                '<div class="notice bad">Give the meeting a title so your '
+                "colleagues know what it&rsquo;s for.</div>", values),
+                status=400)
+            return
+        if not date_start or not date_end:
+            self._send_html(R.meeting_create_page(
+                '<div class="notice bad">Pick a first and last possible '
+                "date.</div>", values), status=400)
+            return
+        if date_end < date_start:
+            self._send_html(R.meeting_create_page(
+                '<div class="notice bad">The last date can&rsquo;t be before '
+                "the first one.</div>", values), status=400)
+            return
+        if hour_end < hour_start:
+            self._send_html(R.meeting_create_page(
+                '<div class="notice bad">The end hour can&rsquo;t be before '
+                "the start hour.</div>", values), status=400)
+            return
+
+        from ..tools.timely import resolve_zone
+        owner_zone = resolve_zone(owner_city) if owner_city else "UTC"
+        if owner_city and not owner_zone:
+            self._send_html(R.meeting_create_page(
+                f'<div class="notice bad">Couldn&rsquo;t find a time zone for '
+                f"&ldquo;{html.escape(owner_city)}&rdquo;. Try a major city, "
+                "a country, or an IANA zone like "
+                "<code>Europe/Amsterdam</code>.</div>", values), status=400)
+            return
+        if not owner_zone:
+            owner_zone = "UTC"
+
+        try:
+            plan_id, owner_token = self.index.create_meeting_plan(
+                title, note, owner_name, owner_city, owner_zone,
+                date_start, date_end, hour_start, hour_end)
+        except Exception:
+            self._send_html(R.meeting_create_page(
+                '<div class="notice bad">The plan couldn&rsquo;t be saved. '
+                "Please try again.</div>", values), status=500)
+            return
+
+        # The owner_token is the only proof of ownership — pass it once via a
+        # short-lived cookie so the view page can show the delete button and
+        # the JS can stash it in localStorage for return visits.
+        self._set_cookie("mtg_owner", f"{plan_id}:{owner_token}",
+                         max_age=60 * 60 * 24 * 30)
+        self._redirect(f"/meeting/{plan_id}?ot={owner_token}")
+
+    def _meeting_view(self, plan_id: str, params: dict) -> None:
+        """GET /meeting/<id> — the aggregate view plus the submit form."""
+        plan = self.index.get_meeting_plan(plan_id)
+        if not plan:
+            self._send_html(self._error_page("404",
+                "This meeting link doesn't exist or was deleted."), 404)
+            return
+        # Owner token: prefer the query param (set right after creation), then
+        # the cookie set at creation time. The cookie lets the owner return to
+        # the page later and still see the delete button.
+        ot = _str_param(params, "ot", limit=64)
+        if not ot:
+            cookie = self._read_cookie("mtg_owner")
+            if cookie and cookie.startswith(f"{plan_id}:"):
+                ot = cookie.split(":", 1)[1]
+        owner_token = ot if ot and ot == plan["owner_token"] else ""
+
+        from ..tools.timely import meeting_slots
+        slots = meeting_slots(plan["date_start"], plan["date_end"],
+                              plan["hour_start"], plan["hour_end"],
+                              plan["owner_zone"])
+        responses = self.index.list_meeting_responses(plan_id)
+        share_url = self._share_url(plan_id)
+        self._send_html(R.meeting_view_page(
+            plan, slots, responses, owner_token=owner_token,
+            share_url=share_url))
+
+    def _post_meeting_response(self, plan_id: str) -> None:
+        """POST /meeting/<id> — submit (or update) a respondent's slots."""
+        if not self.form_limiter.allow(self._client_ip()):
+            self._redirect(f"/meeting/{plan_id}")
+            return
+        plan = self.index.get_meeting_plan(plan_id)
+        if not plan:
+            self._send_html(self._error_page("404",
+                "This meeting link doesn't exist or was deleted."), 404)
+            return
+        if plan.get("expires_at") and plan["expires_at"] < time.time():
+            self._send_html(self._error_page("410",
+                "This meeting link has expired."), 410)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0 or length > 32768:
+            self._redirect(f"/meeting/{plan_id}")
+            return
+        raw = self.rfile.read(length).decode("utf-8", "replace")
+        fields = parse_qs(raw, keep_blank_values=True)
+
+        name = _str_param(fields, "name", limit=120)
+        city = _str_param(fields, "city", limit=120)
+        slots_raw = _str_param(fields, "slots", limit=20000)
+        note = _str_param(fields, "note", limit=500)
+
+        if not name:
+            self._redirect(f"/meeting/{plan_id}")
+            return
+        from ..tools.timely import resolve_zone
+        zone = resolve_zone(city) if city else plan.get("owner_zone", "UTC")
+        if not zone:
+            zone = plan.get("owner_zone", "UTC")
+
+        # Validate the slots payload is a JSON object of {key: "yes"|"maybe"}.
+        import json as _json
+        try:
+            slots_obj = _json.loads(slots_raw) if slots_raw else {}
+            if not isinstance(slots_obj, dict):
+                raise ValueError
+        except ValueError:
+            slots_obj = {}
+        cleaned = {k: v for k, v in slots_obj.items()
+                   if v in ("yes", "maybe") and isinstance(k, str)
+                   and len(k) <= 32}
+        slots_json = _json.dumps(cleaned, separators=(",", ":"))
+
+        try:
+            self.index.add_meeting_response(
+                plan_id, name, city, zone, slots_json, note)
+        except Exception:
+            self._redirect(f"/meeting/{plan_id}")
+            return
+        self._redirect(f"/meeting/{plan_id}")
+
+    def _share_url(self, plan_id: str) -> str:
+        host = self.headers.get("Host", "")
+        if host:
+            return f"https://{host}/meeting/{plan_id}"
+        return f"/meeting/{plan_id}"
+
+    def _set_cookie(self, name: str, value: str, max_age: int = 0) -> None:
+        parts = [f"{name}={value}", "Path=/", "SameSite=Lax",
+                 "HttpOnly"]
+        if max_age:
+            parts.append(f"Max-Age={max_age}")
+        self.send_header("Set-Cookie", "; ".join(parts))
+
+    def _read_cookie(self, name: str) -> str:
+        header = self.headers.get("Cookie", "")
+        for part in header.split(";"):
+            part = part.strip()
+            if part.startswith(f"{name}="):
+                return part[len(name) + 1:]
+        return ""
+
+    # ----- meeting planner JSON API ---------------------------------------
+
+    def _api_zone(self, params: dict) -> None:
+        q = _str_param(params, "q", limit=80)
+        if not q:
+            self._send_json({"query": "", "zone": None, "label": ""})
+            return
+        from ..tools.timely import resolve_zone, zone_offset_hours, CITY_ZONES
+        zone = resolve_zone(q)
+        if not zone:
+            self._send_json({"query": q, "zone": None, "label": ""})
+            return
+        label = zone.rsplit("/", 1)[-1].replace("_", " ")
+        self._send_json({
+            "query": q, "zone": zone, "label": label,
+            "offset_hours": zone_offset_hours(zone),
+        })
+
+    def _api_meeting(self, plan_id: str, params: dict) -> None:
+        plan = self.index.get_meeting_plan(plan_id)
+        if not plan:
+            self._send_json({"error": "not found"}, status=404)
+            return
+        from ..tools.timely import meeting_slots
+        slots = meeting_slots(plan["date_start"], plan["date_end"],
+                              plan["hour_start"], plan["hour_end"],
+                              plan["owner_zone"])
+        responses = self.index.list_meeting_responses(plan_id)
+        self._send_json({"plan": plan, "slots": slots,
+                         "responses": responses})
+
+    def _api_meeting_delete(self, plan_id: str) -> None:
+        owner_token = self.headers.get("X-Owner-Token", "")[:64]
+        if not owner_token:
+            self._send_json({"error": "missing owner token"}, status=403)
+            return
+        deleted = self.index.delete_meeting_plan(plan_id, owner_token)
+        self._send_json({"ok": deleted} if deleted
+                        else {"error": "not found or not authorised"},
+                        status=200 if deleted else 404)
+
+    _ERROR_COPY = {
+        "404": ("This page wandered off",
+                "The link is broken or the page was moved. Try a search, or "
+                "head back to one of these."),
+        "500": ("Something broke on our end",
+                "That wasn't supposed to happen. Give it another moment, or "
+                "start a fresh search."),
+    }
+
     def _error_page(self, code: str, message: str) -> str:
+        title, blurb = self._ERROR_COPY.get(code, (message, ""))
         body = render("error/index.html", {
             "code": code,
-            "message": message,
-            "searchbox": R.searchbox(),
+            "title": title,
+            "message": blurb or message,
+            "searchbox": R.searchbox(placeholder="Search instead…"),
         })
         return R.shell(f"{code} — SerikaSearch", body)
 
@@ -880,6 +1205,10 @@ class Handler(BaseHTTPRequestHandler):
             self._api_similar(params)
         elif route == "/api/stats":
             self._api_stats()
+        elif route == "/api/zone":
+            self._api_zone(params)
+        elif route.startswith("/api/meeting/"):
+            self._api_meeting(route[len("/api/meeting/"):], params)
         else:
             self._send_json({"error": "unknown endpoint"}, status=404)
 
@@ -1222,6 +1551,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ----- static ----------------------------------------------------------
 
+    # In-memory cache for static files: (path → (data, ctype, mtime)).
+    # Avoids a disk read on every request for CSS/JS/icons that never change
+    # within a process lifetime (the asset version in the URL busts the
+    # browser cache when files do change).
+    _static_cache: dict[str, tuple[bytes, str, float]] = {}
+
     def _send_static(self, route: str) -> None:
         relative = route[len("/static/"):]
         safe = os.path.normpath(relative).lstrip("/")
@@ -1229,14 +1564,25 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.abspath(full).startswith(os.path.abspath(STATIC_DIR)):
             self._send_bytes(b"forbidden", "text/plain", 403)
             return
+        cached = self._static_cache.get(full)
         try:
-            with open(full, "rb") as handle:
-                data = handle.read()
+            mtime = os.path.getmtime(full)
         except OSError:
             self._send_bytes(b"not found", "text/plain", 404)
             return
-        ctype, _ = mimetypes.guess_type(full)
-        self._send_bytes(data, ctype or "application/octet-stream",
+        if cached and cached[2] == mtime:
+            data, ctype, _ = cached
+        else:
+            try:
+                with open(full, "rb") as handle:
+                    data = handle.read()
+            except OSError:
+                self._send_bytes(b"not found", "text/plain", 404)
+                return
+            ctype, _ = mimetypes.guess_type(full)
+            ctype = ctype or "application/octet-stream"
+            self._static_cache[full] = (data, ctype, mtime)
+        self._send_bytes(data, ctype,
                          cache="public, max-age=31536000, immutable")
 
     # ----- io --------------------------------------------------------------
@@ -1266,18 +1612,42 @@ class Handler(BaseHTTPRequestHandler):
     def _send_bytes(self, data: bytes, ctype: str, status: int = 200,
                     cache: str = "no-cache", cors: bool = False) -> None:
         try:
-            self.send_response(status)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", cache)
-            self.send_header("Referrer-Policy",
-                             "strict-origin-when-cross-origin")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Content-Security-Policy", CSP)
-            self.send_header("Permissions-Policy",
-                             "geolocation=(), microphone=(), camera=(), "
-                             "interest-cohort=(), browsing-topics=()")
+            # Gzip compress text responses larger than ~1KB. CSS and JS are
+            # the big wins (70-80% size reduction), but HTML and JSON benefit
+            # too. Binary types (images, favicons) are skipped.
+            accept_encoding = self.headers.get("Accept-Encoding", "")
+            if ("gzip" in accept_encoding and len(data) > 1024
+                    and (ctype.startswith("text/")
+                         or "json" in ctype or "xml" in ctype
+                         or "javascript" in ctype)):
+                import gzip as _gzip
+                data = _gzip.compress(data, compresslevel=6)
+                self.send_response(status)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Cache-Control", cache)
+                self.send_header("Referrer-Policy",
+                                 "strict-origin-when-cross-origin")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
+                self.send_header("Content-Security-Policy", CSP)
+                self.send_header("Permissions-Policy",
+                                 "geolocation=(), microphone=(), camera=(), "
+                                 "interest-cohort=(), browsing-topics=()")
+            else:
+                self.send_response(status)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", cache)
+                self.send_header("Referrer-Policy",
+                                 "strict-origin-when-cross-origin")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
+                self.send_header("Content-Security-Policy", CSP)
+                self.send_header("Permissions-Policy",
+                                 "geolocation=(), microphone=(), camera=(), "
+                                 "interest-cohort=(), browsing-topics=()")
             if cors:
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Access-Control-Allow-Methods", "GET")

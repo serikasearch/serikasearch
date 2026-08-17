@@ -6,6 +6,10 @@ Design goals:
   * Stay gentle: per-host crawl-delay, per-host page caps, timeouts.
   * Go wide, not hard: many hosts are crawled in parallel by a worker pool,
     while each individual host is still visited one request at a time.
+  * Seed from sitemaps: the first time a host is seen, its robots.txt
+    ``Sitemap:`` lines and the conventional /sitemap.xml locations are mined
+    for canonical URLs — including sitemap indexes and gzipped sitemaps — so
+    the crawl reaches pages that link-following alone never would.
   * Be resumable: the crawl frontier lives in Redis.
   * Be fast: batch DB writes, connection keep-alive, minimal lock contention.
 """
@@ -20,6 +24,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from urllib.parse import urlsplit
 
@@ -35,8 +40,50 @@ FULL_USER_AGENT = (
 
 MAX_PAGE_BYTES = 4 * 1024 * 1024
 MAX_FAVICON_BYTES = 200 * 1024
+MAX_SITEMAP_BYTES = 16 * 1024 * 1024   # sitemaps can be large; still bounded
 ALLOWED_CONTENT = ("text/html", "application/xhtml")
 FAVICON_TYPES = ("image/", "application/octet-stream")
+
+# Sitemap traversal bounds — generous enough to ingest a real site, tight
+# enough that one hostile or enormous sitemap can't run away with the crawl.
+SITEMAP_MAX_CHILDREN = 50       # child sitemaps to follow from one index
+SITEMAP_MAX_DEPTH = 2           # index → sub-index → urlset
+
+
+def _localname(tag: str) -> str:
+    """An XML tag without its namespace: ``{ns}loc`` → ``loc``."""
+    return tag.rsplit("}", 1)[-1].lower()
+
+
+def parse_sitemap(data: bytes) -> tuple[list[str], list[str]]:
+    """Split a sitemap document into (child sitemap URLs, page URLs).
+
+    Handles both a ``<sitemapindex>`` (which points at more sitemaps) and a
+    ``<urlset>`` (which lists pages), namespace-agnostically. Malformed XML
+    yields two empty lists rather than raising — a broken sitemap should never
+    take a worker down.
+    """
+    children: list[str] = []
+    pages: list[str] = []
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return children, pages
+
+    root_name = _localname(root.tag)
+    for entry in root:
+        loc = ""
+        for child in entry:
+            if _localname(child.tag) == "loc" and child.text:
+                loc = child.text.strip()
+                break
+        if not loc:
+            continue
+        if root_name == "sitemapindex":
+            children.append(loc)
+        else:
+            pages.append(loc)
+    return children, pages
 
 # Link targets that are obviously not HTML pages — skip them so the frontier
 # doesn't waste budget on downloads we'd just throw away.
@@ -65,6 +112,7 @@ class Crawler:
         category: str = "",
         want_images: bool = True,
         want_favicons: bool = True,
+        want_sitemaps: bool = True,
         verbose: bool = True,
     ):
         self.index = index
@@ -77,6 +125,7 @@ class Crawler:
         self.category = category
         self.want_images = want_images
         self.want_favicons = want_favicons
+        self.want_sitemaps = want_sitemaps
         self.verbose = verbose
 
         self.robots = RobotsCache(
@@ -86,7 +135,9 @@ class Crawler:
         self.host_counts: dict[str, int] = defaultdict(int)
         self.pages_crawled = 0
         self.images_found = 0
+        self.sitemap_urls_found = 0
         self._favicon_tried: set[str] = set()
+        self._sitemap_tried: set[str] = set()
         self._counts_lock = threading.Lock()      # only for counters
         self._log_lock = threading.Lock()
         self._stop = threading.Event()
@@ -200,6 +251,89 @@ class Crawler:
             except Exception:
                 continue
 
+    # ----- sitemaps --------------------------------------------------------
+
+    def _fetch_sitemap(self, url: str) -> bytes | None:
+        """Fetch a sitemap, transparently un-gzipping .gz payloads."""
+        if not self.robots.can_fetch(url):
+            return None
+        try:
+            self.robots.wait_if_needed(url)
+            with self._open(url, "application/xml,text/xml,*/*") as resp:
+                raw = resp.read(MAX_SITEMAP_BYTES + 1)
+                if len(raw) > MAX_SITEMAP_BYTES:
+                    return None
+                raw = self._maybe_gunzip(raw, resp)
+                # A .xml.gz served without Content-Encoding still needs a pass.
+                if url.endswith(".gz") and raw[:2] == b"\x1f\x8b":
+                    try:
+                        raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read()
+                    except OSError:
+                        return None
+                return raw
+        except Exception:
+            return None
+
+    def _discover_sitemaps(self, host: str, scheme: str, category: str) -> None:
+        """Seed the frontier from a host's sitemaps, once per host.
+
+        Sitemaps are the site's own canonical URL list, so they reach pages
+        that link-following never would — deep archives, sections behind
+        search forms, anything not linked from the crawled entry point.
+        """
+        if not self.want_sitemaps:
+            return
+        with self._counts_lock:
+            if host in self._sitemap_tried:
+                return
+            self._sitemap_tried.add(host)
+        if self.index.is_blocked(host):
+            return
+
+        base = f"{scheme}://{host}"
+        # robots.txt Sitemap: lines first (authoritative), then the conventional
+        # locations as a fallback for sites that don't advertise them.
+        queue = list(self.robots.sitemaps(base))
+        for guess in (f"{base}/sitemap.xml", f"{base}/sitemap_index.xml"):
+            if guess not in queue:
+                queue.append(guess)
+
+        collected: list[str] = []
+        cap = max(self.per_host_cap * 2, 200)
+        seen_maps: set[str] = set()
+        children_followed = 0
+
+        # Breadth-first over sitemap → sub-sitemaps, bounded on every axis.
+        depth = 0
+        while queue and depth <= SITEMAP_MAX_DEPTH and len(collected) < cap:
+            next_queue: list[str] = []
+            for sm_url in queue:
+                if sm_url in seen_maps or len(collected) >= cap:
+                    continue
+                seen_maps.add(sm_url)
+                data = self._fetch_sitemap(sm_url)
+                if not data:
+                    continue
+                children, pages = parse_sitemap(data)
+                for page in pages:
+                    if len(collected) >= cap:
+                        break
+                    if self._looks_like_page(page):
+                        collected.append(page)
+                for child in children:
+                    if children_followed >= SITEMAP_MAX_CHILDREN:
+                        break
+                    children_followed += 1
+                    next_queue.append(child)
+            queue = next_queue
+            depth += 1
+
+        if collected:
+            self.index.add_links(collected, depth=1, category=category)
+            with self._counts_lock:
+                self.sitemap_urls_found += len(collected)
+            self._log(f"  ⌖ sitemap {host}: +{len(collected)} urls")
+
     # ----- crawl loop ------------------------------------------------------
 
     def _budget_left(self) -> bool:
@@ -250,6 +384,12 @@ class Crawler:
         if not self.robots.can_fetch(url):
             self._log(f"  ⊘ robots.txt disallows  {url}")
             return
+
+        # First time we touch a host, mine its sitemaps for canonical URLs.
+        # (Guarded so it runs once per host, before this page's own fetch.)
+        if host not in self._sitemap_tried:
+            self._discover_sitemaps(host, parts.scheme or "https", category)
+
         self.robots.wait_if_needed(url)
 
         result = self._fetch_page(url)
@@ -377,7 +517,8 @@ class Crawler:
         rate = self.pages_crawled / elapsed if elapsed > 0 else 0
         self._log(
             f"Done in {elapsed:.0f}s — {self.pages_crawled} pages "
-            f"({rate:.1f}/s), {self.images_found} images this run; "
+            f"({rate:.1f}/s), {self.images_found} images, "
+            f"{self.sitemap_urls_found} sitemap urls this run; "
             f"{self.index.document_count():,} pages / "
             f"{self.index.image_count():,} images in index."
         )

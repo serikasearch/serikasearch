@@ -9,7 +9,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
-  scroll-padding-top: calc(var(--header-h) + var(--sp-5));
+  scroll-padding-top: calc(var(--header-full) + var(--sp-4));
 }
 
 body {
@@ -331,6 +331,39 @@ mark {
 .table-wrap td { color: var(--text-2); }
 .table-wrap tr:last-child td { border-bottom: none; }
 .table-wrap code { white-space: nowrap; }
+
+/* ------------------------------------------------------------- touch ------
+   Two corrections that cut across every component, so they live together here
+   rather than being repeated in each file.
+
+   A tap fires :hover and leaves it applied until the next tap somewhere else,
+   which makes lift-and-tint hover styling read as a stuck selection. And the
+   chip-sized controls are tuned to a mouse cursor: on a finger they want the
+   ~44px target that the buttons already have. */
+
+@media (hover: none) {
+  .chip:hover,
+  .tool-card:hover,
+  .lb-similar-item:hover,
+  .video-card:hover,
+  .kpanel-gallery img:hover,
+  .result:hover .result-thumb img,
+  .video-card:hover .video-thumb img,
+  .video-card:hover .video-play svg,
+  button.pt-cell:hover { transform: none; }
+}
+
+@media (pointer: coarse) {
+  .filter-opt { padding: 9px 13px; }
+  .section-link { padding: 7px 11px; }
+  .tab { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .footer-links a,
+  .footer-legal a { min-height: 40px; }
+  .doc-toc a { padding-top: 10px; padding-bottom: 10px; }
+  .kpanel-source { min-height: 40px; }
+  .header .logo { display: inline-flex; align-items: center; min-height: 40px; }
+  .suggestion { padding: var(--sp-4) var(--sp-3); }
+}
 
 /* Scrollbars: thin and unobtrusive, but visible enough to grab. */
 * {

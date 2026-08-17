@@ -502,3 +502,151 @@
               transform var(--t-med) var(--ease-out);
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ============================================================== meeting planner ===== */
+
+.meeting-page .doc-body { max-width: 920px; }
+.meeting-page .doc-summary { margin-bottom: var(--sp-4); }
+
+.meet-create { max-width: 560px; }
+.field-row { display: flex; gap: var(--sp-4); }
+.field-row > div { flex: 1; display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.meet-share {
+  margin: var(--sp-4) 0 var(--sp-5);
+  padding: var(--sp-4);
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.meet-share label { font-size: var(--fs-sm); font-weight: 600; color: var(--text-1); }
+.meet-share-row { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+.meet-share-row input[type="text"] {
+  flex: 1; min-width: 220px;
+  padding: 8px var(--sp-3);
+  background: var(--bg-2); border: 1px solid var(--border-2);
+  border-radius: var(--r-sm); color: var(--text-1);
+  font-size: var(--fs-sm); font-family: ui-monospace, monospace;
+}
+.meet-share .hint { color: var(--text-3); font-size: var(--fs-xs); }
+.meet-delete { margin-left: auto; color: var(--bad); }
+
+.meet-section { margin-top: var(--sp-6); }
+.meet-section h2 { font-size: var(--fs-lg); margin-bottom: var(--sp-2); }
+
+/* ---- aggregate grid ---- */
+.meet-agg-grid { overflow-x: auto; padding-bottom: var(--sp-2); }
+.meet-agg-head, .meet-agg-row, .meet-agg-tally {
+  display: flex; gap: 2px; align-items: stretch;
+}
+.meet-agg-day, .meet-agg-cells {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.meet-agg-day {
+  min-width: 96px; padding: var(--sp-2);
+  background: var(--bg-3); border-radius: var(--r-sm) var(--r-sm) 0 0;
+  border: 1px solid var(--border-2); border-bottom: none;
+}
+.meet-agg-day .meet-agg-hours { display: grid; grid-auto-flow: column;
+  grid-auto-columns: 1fr; gap: 2px; }
+.meet-agg-hr {
+  text-align: center; font-size: 10px; color: var(--text-4);
+  font-variant-numeric: tabular-nums; padding: 2px 0;
+}
+.meet-agg-row { align-items: center; }
+.meet-agg-name {
+  min-width: 96px; padding: var(--sp-2); font-size: var(--fs-xs);
+  color: var(--text-2); font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.meet-agg-cells { display: grid; grid-auto-flow: column;
+  grid-auto-columns: 1fr; gap: 2px; flex: 1; }
+.meet-agg-cell {
+  width: 100%; aspect-ratio: 1; min-width: 18px; border-radius: 3px;
+  background: var(--bg-2); border: 1px solid var(--border);
+}
+.meet-agg-cell.yes { background: var(--good); border-color: var(--good); }
+.meet-agg-cell.maybe { background: rgba(95, 211, 154, 0.4);
+  border-color: rgba(95, 211, 154, 0.5); }
+.meet-agg-empty { margin: var(--sp-4) 0; color: var(--text-3); }
+.meet-agg-tally {
+  margin-top: 2px; padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-2);
+}
+.meet-agg-tally-cell {
+  text-align: center; font-size: 11px; font-weight: 650;
+  font-variant-numeric: tabular-nums; padding: 4px 0;
+  border-radius: 3px; min-width: 18px;
+  background: color-mix(in srgb, var(--good) calc(var(--r, 0) * 85%),
+              var(--bg-4));
+  color: var(--text-2);
+}
+.meet-agg-tally-cell.best {
+  background: var(--good); color: #052015;
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
+.meet-legend {
+  display: flex; gap: var(--sp-4); margin-top: var(--sp-3);
+  font-size: var(--fs-xs); color: var(--text-3);
+}
+.meet-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.meet-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.meet-sw-yes { background: var(--good); }
+.meet-sw-maybe { background: rgba(95, 211, 154, 0.4); }
+.meet-sw-no { background: var(--bg-2); border: 1px solid var(--border); }
+
+/* ---- pick grid (submit form) ---- */
+.meet-submit-form {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sp-4); max-width: 640px; margin-bottom: var(--sp-4);
+}
+.meet-pick { overflow-x: auto; padding-bottom: var(--sp-2); margin-bottom: var(--sp-2); }
+.meet-pick-head { display: flex; gap: 2px; }
+.meet-pick-day {
+  min-width: 80px; padding: var(--sp-2);
+  background: var(--bg-3); border-radius: var(--r-sm) var(--r-sm) 0 0;
+  border: 1px solid var(--border-2); border-bottom: none;
+  font-size: var(--fs-xs); color: var(--text-2); font-weight: 600;
+}
+.meet-pick-hours { display: grid; grid-auto-flow: column;
+  grid-auto-columns: 1fr; gap: 2px; margin-top: var(--sp-1); }
+.meet-pick-hr {
+  text-align: center; font-size: 10px; color: var(--text-4);
+  font-variant-numeric: tabular-nums; padding: 2px 0;
+}
+.meet-pick-body { display: flex; gap: 2px; }
+.meet-pick-cells { display: grid; grid-auto-flow: column;
+  grid-auto-columns: 1fr; gap: 2px; flex: 1; }
+.meet-pick-cell {
+  width: 100%; aspect-ratio: 1; min-width: 22px; border-radius: 4px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  cursor: pointer; padding: 0; transition: background var(--t-fast) ease,
+              border-color var(--t-fast) ease;
+}
+.meet-pick-cell:hover { border-color: var(--accent-line); }
+.meet-pick-cell.yes { background: var(--good); border-color: var(--good); }
+.meet-pick-cell.maybe { background: rgba(95, 211, 154, 0.4);
+  border-color: rgba(95, 211, 154, 0.5); }
+.meet-pick-controls { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+
+/* ---- response list ---- */
+.meet-response-list { list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: var(--sp-2); }
+.meet-response-list li {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-3); border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+}
+.meet-resp-name { font-weight: 600; color: var(--text-1); }
+.meet-resp-meta { font-size: var(--fs-xs); color: var(--text-3); }
+.meet-resp-note { font-size: var(--fs-sm); color: var(--text-2); margin-top: 2px; }
+
+/* ---- quick-widget CTA ---- */
+.meet-cta { margin-top: var(--sp-3); padding-top: var(--sp-3);
+  border-top: 1px solid var(--border); text-align: right; }
+
+.meeting-page.expired-mode .meet-submit,
+.meeting-page.expired-mode .meet-share { opacity: 0.5; pointer-events: none; }
