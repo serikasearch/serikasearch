@@ -6,4 +6,7 @@ COPY . .
 # Run the crawler in 24/7 loop mode with fast settings: 200 workers, 0.2s delay,
 # 200 pages/host, depth 4, 100k page budget per cycle.
 # Uses urllib3 connection pooling + batch document upserts for max throughput.
+# DB_POOL_MAX must be >= workers because each worker holds a thread-local conn.
+ENV DB_POOL_MIN=10
+ENV DB_POOL_MAX=220
 CMD ["python", "-m", "serika", "loop", "--max-pages", "100000", "--max-depth", "4", "--per-host", "200", "--workers", "200", "--delay", "0.2", "--timeout", "8", "--rest-time", "60"]
