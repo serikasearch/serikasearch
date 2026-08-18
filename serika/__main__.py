@@ -85,6 +85,18 @@ def cmd_serve(args) -> int:
 
 # ----- crawl -------------------------------------------------------------
 
+def _distributed(args) -> bool:
+    """Whether to coordinate politeness through Redis for a multi-node fleet.
+
+    Enabled by ``--distributed`` or the ``CRAWLER_DISTRIBUTED`` env var, so a
+    container image can turn it on without changing the command.
+    """
+    if getattr(args, "distributed", False):
+        return True
+    return os.environ.get("CRAWLER_DISTRIBUTED", "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 def cmd_crawl(args) -> int:
     index = Index(args.db)
     groups = _load_seed_groups(args.targets, args.category)
@@ -114,6 +126,7 @@ def cmd_crawl(args) -> int:
             want_favicons=not args.no_favicons,
             want_sitemaps=not args.no_sitemaps,
             verbose=not args.quiet,
+            distributed=_distributed(args),
         )
         if urls:
             crawler.add_seeds(urls)
@@ -174,6 +187,7 @@ def cmd_loop(args) -> int:
                 want_favicons=not args.no_favicons,
                 want_sitemaps=not args.no_sitemaps,
                 verbose=not args.quiet,
+                distributed=_distributed(args),
             )
             if urls:
                 crawler.add_seeds(urls)
@@ -355,6 +369,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--per-host", type=int, default=200, help="max pages per host")
     c.add_argument("--workers", type=int, default=200, help="parallel workers")
     c.add_argument("--same-host", action="store_true", help="never leave seed hosts")
+    c.add_argument("--distributed", action="store_true",
+                   help="coordinate per-host politeness via Redis (multi-node)")
     c.add_argument("--delay", type=float, default=0.2, help="crawl-delay default")
     c.add_argument("--timeout", type=float, default=8.0, help="request timeout")
     c.add_argument("--no-images", action="store_true", help="skip image indexing")
@@ -373,6 +389,8 @@ def build_parser() -> argparse.ArgumentParser:
     lp.add_argument("--per-host", type=int, default=200, help="max pages per host")
     lp.add_argument("--workers", type=int, default=200, help="parallel workers")
     lp.add_argument("--same-host", action="store_true", help="never leave seed hosts")
+    lp.add_argument("--distributed", action="store_true",
+                    help="coordinate per-host politeness via Redis (multi-node)")
     lp.add_argument("--delay", type=float, default=0.2, help="crawl-delay default")
     lp.add_argument("--timeout", type=float, default=8.0, help="request timeout")
     lp.add_argument("--rest-time", type=float, default=60.0,

@@ -114,6 +114,7 @@ class Crawler:
         want_favicons: bool = True,
         want_sitemaps: bool = True,
         verbose: bool = True,
+        distributed: bool = False,
     ):
         self.index = index
         self.max_pages = max_pages
@@ -121,6 +122,12 @@ class Crawler:
         self.per_host_cap = per_host_cap
         self.same_host_only = same_host_only
         self.timeout = timeout
+        # Distributed mode: coordinate per-host spacing and caps through Redis so
+        # many crawler nodes stay collectively polite (see _respect_host). The
+        # per-host cap becomes a rolling window; sized generously so a big site
+        # is still fully crawled over a cycle, just not hammered all at once.
+        self.distributed = distributed
+        self._host_window = 3600
         self.workers = max(1, workers)
         self.category = category
         self.want_images = want_images
@@ -409,14 +416,48 @@ class Crawler:
                 self._process(*item)
             except Exception as e:
                 self._log(f"  ! worker error: {type(e).__name__}: {e}")
+            finally:
+                # Return this worker's Postgres connection to the pool between
+                # pages. Workers spend nearly all their time on network I/O and
+                # only touch Postgres to flush batched documents (every ~20
+                # pages); the frontier and opt-out checks are served from Redis.
+                # Holding one connection per worker for life therefore caps
+                # concurrency at Postgres's max_connections (100) and starves
+                # any workers beyond that — the real reason "200 workers" only
+                # crawled ~75 at a time. Releasing here lets hundreds of network
+                # workers share a small connection pool. Safe: batch flushes
+                # commit atomically (upsert_documents_batch), so releasing an
+                # idle connection loses no work.
+                self.index.release()
+
+    def _respect_host_delay(self, url: str, host: str) -> None:
+        """Space out requests to one host, fleet-wide in distributed mode.
+
+        Single-node: the per-host lock in RobotsCache spaces requests. Multi-node:
+        that lock is invisible to other servers, so we reserve the next slot in
+        Redis (shared) and sleep until it — every node draws from the same
+        schedule, so a site sees the intended rate no matter how many nodes run.
+        """
+        if not self.distributed:
+            self.robots.wait_if_needed(url)
+            return
+        delay = self.robots.crawl_delay_for(url)
+        slot = self.index.reserve_host_slot(host, delay)
+        wait = slot - time.time()
+        if wait > 0:
+            time.sleep(min(wait, 30.0))
 
     def _process(self, url: str, depth: int, category: str):
         category = category or self.category
         parts = urlsplit(url)
         host = parts.netloc
 
-        # Check per-host cap — read without lock (small race is fine).
-        if self.host_counts.get(host, 0) >= self.per_host_cap:
+        # Per-host cap. Single-node uses the in-memory counter; distributed mode
+        # uses a shared rolling-window counter so the whole fleet honours one cap.
+        if self.distributed:
+            if self.index.bump_host_count(host, self._host_window) > self.per_host_cap:
+                return
+        elif self.host_counts.get(host, 0) >= self.per_host_cap:
             return
         if self.same_host_only and host not in self.seed_hosts:
             return
@@ -435,7 +476,7 @@ class Crawler:
         if host not in self._sitemap_tried:
             self._discover_sitemaps(host, parts.scheme or "https", category)
 
-        self.robots.wait_if_needed(url)
+        self._respect_host_delay(url, host)
 
         result = self._fetch_page(url)
         if result is None:

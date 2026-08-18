@@ -1,0 +1,38 @@
+# PgBouncer — connection pooler in front of Postgres.
+#
+# Why: Postgres backends are expensive (~5-10 MB each) and capped by
+# max_connections. As you add crawler servers, their pooled client connections
+# would otherwise each need a real Postgres backend, and you'd have to keep
+# re-tuning DB_POOL_MAX so the totals fit. PgBouncer removes that entirely:
+# in TRANSACTION pooling it multiplexes thousands of idle client connections
+# onto a small set of server connections (a backend is only held for the
+# duration of a transaction, and the crawler is idle on Postgres most of the
+# time). Point every web + crawler node's DATABASE_URL at this service and add
+# as many nodes as you like — no per-node var tuning.
+#
+# Deploy as its own service. Set ONE env var on it:
+#   DATABASE_URL = the REAL Postgres URL (postgres://user:pass@pg-host:5432/db)
+# Then set every app/crawler node's DATABASE_URL to this pooler instead:
+#   postgres://user:pass@pgbouncer-host:5432/db
+FROM edoburu/pgbouncer:latest
+
+# Transaction pooling — required for the "many nodes, few backends" scaling.
+# The app is transaction-pooler-safe: it sets no per-session GUCs (those live on
+# the database via sql/setup.sql) and uses no server-side prepared statements.
+ENV POOL_MODE=transaction
+# Plenty of client slots for a large fleet; cheap (not real backends).
+ENV MAX_CLIENT_CONN=10000
+# Server-side backends per (user,db). Keep under Postgres max_connections
+# (raise it with sql/setup.sql). 80 backends comfortably serve thousands of
+# clients because transactions are short.
+ENV DEFAULT_POOL_SIZE=80
+ENV MIN_POOL_SIZE=5
+ENV RESERVE_POOL_SIZE=10
+ENV RESERVE_POOL_TIMEOUT=2
+# SCRAM auth passthrough to Postgres.
+ENV AUTH_TYPE=scram-sha-256
+# psycopg2 sends extra_float_digits/options on startup; transaction pooling
+# can't set those per session, so tell PgBouncer to ignore them.
+ENV IGNORE_STARTUP_PARAMETERS=extra_float_digits,options
+
+EXPOSE 5432

@@ -340,8 +340,15 @@ class Index:
         # session when something goes wrong.
         min_conn = max(1, int(os.environ.get("DB_POOL_MIN", "4")))
         max_conn = max(min_conn, int(os.environ.get("DB_POOL_MAX", "40")))
+        # Apply the search performance GUCs at connection startup rather than via
+        # a runtime `SET` (which a transaction-pooling PgBouncer can't keep per
+        # client). On a DIRECT connection this `options` string sets them for the
+        # session; through PgBouncer it is ignored (listed in that pooler's
+        # IGNORE_STARTUP_PARAMETERS) and the same values come from the database
+        # default in sql/setup.sql — so search stays index-driven either way.
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             min_conn, max_conn, db_url,
+            options="-c enable_seqscan=off -c jit=off",
         )
         self._local = threading.local()
         self._write_lock = threading.RLock()  # kept for compat but unused
@@ -377,17 +384,12 @@ class Index:
         if conn is None or conn.closed:
             conn = self._borrow()
             conn.autocommit = False
-            # Set session-level performance options once per connection.
-            # Tracked via a thread-local flag so we don't re-run SET on every
-            # borrow (the web server creates a new thread per request, so this
-            # still runs once per request — but only once, not on every
-            # _get_conn call within a request).
-            if not getattr(self._local, "tuned", False):
-                with conn.cursor() as cur:
-                    cur.execute("SET enable_seqscan = off")
-                    cur.execute("SET jit = off")
-                conn.commit()
-                self._local.tuned = True
+            # Performance GUCs (enable_seqscan=off, jit=off) are set as DATABASE
+            # defaults via sql/setup.sql, not per session. Doing it per session
+            # would break under a transaction-pooling PgBouncer (a `SET` there
+            # leaks across unrelated clients), and PgBouncer is what lets the
+            # crawler fleet scale past Postgres's raw connection limit. See the
+            # "Scaling" section of the README.
             self._local.conn = conn
         return conn
 
@@ -1135,6 +1137,66 @@ class Index:
         if not self._redis:
             return 0
         return self._redis.zcard("frontier")
+
+    # ----- distributed politeness (shared across crawler nodes) ------------
+    #
+    # When several crawler processes/servers share this Redis, per-host spacing
+    # and per-host caps can no longer live in a single process's memory — each
+    # node would independently hit a site at the full rate and get the whole
+    # fleet blocked. These two helpers move that coordination into Redis so any
+    # number of nodes stay collectively polite. They are no-ops without Redis
+    # (single-process in-memory politeness handles that case).
+
+    # Atomic per-host slot reservation: returns the unix time at which THIS
+    # caller may fetch from the host, having reserved the following slot for the
+    # next caller `delay` seconds later. Spacing therefore holds across nodes.
+    _RESERVE_LUA = (
+        "local slot = tonumber(redis.call('GET', KEYS[1]) or '0')\n"
+        "local now = tonumber(ARGV[1])\n"
+        "local delay = tonumber(ARGV[2])\n"
+        "if slot < now then slot = now end\n"
+        "redis.call('SET', KEYS[1], slot + delay,\n"
+        "           'PX', math.floor((slot - now + delay) * 1000) + 60000)\n"
+        "return tostring(slot)\n"
+    )
+
+    def reserve_host_slot(self, host: str, delay: float) -> float:
+        """Reserve the next crawl slot for ``host``; return the time to fetch at.
+
+        Fleet-wide, requests to one host are spaced by at least ``delay``. With
+        no Redis this returns ``now`` (caller falls back to local spacing).
+        """
+        now = time.time()
+        if not self._redis or not host:
+            return now
+        try:
+            script = getattr(self._local, "_reserve_script", None)
+            if script is None:
+                script = self._redis.register_script(self._RESERVE_LUA)
+                self._local._reserve_script = script
+            slot = script(keys=[f"hostslot:{host}"], args=[now, max(delay, 0.0)])
+            return float(slot)
+        except Exception:
+            return now
+
+    def bump_host_count(self, host: str, window: int) -> int:
+        """Increment and return this host's fetch count within a rolling window.
+
+        Lets the fleet enforce a shared per-host page cap. The counter expires
+        after ``window`` seconds so a host becomes crawlable again next cycle.
+        Returns a large sentinel on failure so a Redis hiccup never blocks
+        crawling (fail-open — the local cap still applies).
+        """
+        if not self._redis or not host:
+            return 0
+        try:
+            key = f"hostcount:{host}"
+            count = self._redis.incr(key)
+            if count == 1:
+                self._redis.expire(key, max(window, 1))
+            return int(count)
+        except Exception:
+            return 0
 
     def commit(self) -> None:
         """Commit any pending writes on the thread-local connection."""

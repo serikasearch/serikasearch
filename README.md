@@ -201,6 +201,48 @@ Two containers from the same repo:
 
 Both need `DATABASE_URL` and `REDIS_URL`.
 
+### One-time database setup
+
+Run once (point at Postgres directly, not PgBouncer):
+
+```
+psql "$DATABASE_URL" -f sql/setup.sql
+```
+
+It sets the search performance GUCs as database defaults (the app no longer
+sets them per session, so it works behind a transaction pooler) and raises
+`max_connections`. Restart Postgres afterwards for the connection change.
+
+### Scaling the crawler across servers
+
+The crawler is horizontally scalable with **no per-server configuration**: every
+node runs the same `Dockerfile.crawler` image with the same two env vars
+(`DATABASE_URL`, `REDIS_URL`) — nothing to update or increment when you add
+one. All crawl state lives in the shared Redis and Postgres.
+
+- **No double-crawling.** Frontier claims use an atomic Redis `ZPOPMIN`, so two
+  nodes never take the same URL. Node identity is implicit — no ids to assign.
+- **Collective politeness.** With `CRAWLER_DISTRIBUTED=1` (default in the image)
+  each node reserves per-host fetch slots in Redis, so a site sees the intended
+  rate no matter how many nodes run — the fleet won't get itself IP-banned.
+- **Connections don't bottleneck.** Deploy `Dockerfile.pgbouncer` as a service,
+  set its `DATABASE_URL` to the real Postgres, and point every web + crawler
+  node's `DATABASE_URL` at the pooler. In transaction pooling it multiplexes
+  thousands of client connections onto ~80 Postgres backends, so `DB_POOL_MAX`
+  never needs retuning as the fleet grows. (Without PgBouncer you'd have to keep
+  `DB_POOL_MAX × nodes + web` under `max_connections`.)
+
+So the whole scaling story is: **run `sql/setup.sql` once, deploy PgBouncer
+once, then clone the crawler container onto as many servers as you want.**
+
+**Edge/serverless (Cloudflare Workers etc.):** not recommended for the crawler
+itself — Workers have short CPU/wall-time limits, can't hold the Postgres pool
+or the persistent HTTP pools the crawler relies on, and running a scraper on
+edge functions tends to get the account flagged. If you want more egress IPs,
+the sound pattern is a thin fetch-proxy at the edge that the real container
+workers call — an advanced add-on, not the starting point. More cheap VPS
+replicas is the faster, safer path.
+
 ## License
 
 MIT

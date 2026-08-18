@@ -3,10 +3,29 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-# Run the crawler in 24/7 loop mode with fast settings: 200 workers, 0.2s delay,
-# 200 pages/host, depth 4, 100k page budget per cycle.
+# Run the crawler in 24/7 loop mode: 300 network workers, 0.2s delay,
+# 500 pages/host, depth 4, 100k page budget per cycle.
 # Uses urllib3 connection pooling + batch document upserts for max throughput.
-# DB_POOL_MAX must be >= workers because each worker holds a thread-local conn.
-ENV DB_POOL_MIN=10
-ENV DB_POOL_MAX=220
-CMD ["python", "-m", "serika", "loop", "--max-pages", "100000", "--max-depth", "4", "--per-host", "200", "--workers", "200", "--delay", "0.2", "--timeout", "8", "--rest-time", "60"]
+#
+# Workers now RELEASE their Postgres connection between pages (see
+# Crawler._worker), so worker count is decoupled from the connection pool:
+# 300 network-bound workers share a small pool that only fills during batch
+# flushes. The pool max is kept well under Postgres's max_connections (100,
+# shared with the web app which uses up to 40) — that shared limit, not the
+# worker count, was what pinned throughput at ~75 before.
+# Point DATABASE_URL at PgBouncer (Dockerfile.pgbouncer) and this pool size is
+# just cheap client connections to the pooler — it NO LONGER has to be retuned
+# as you add nodes, because PgBouncer multiplexes them onto a fixed set of
+# Postgres backends. Add as many crawler replicas as you want with this same
+# image and env. (Without PgBouncer, DB_POOL_MAX * nodes + web must stay under
+# Postgres max_connections — see sql/setup.sql to raise that ceiling.)
+ENV DB_POOL_MIN=3
+ENV DB_POOL_MAX=40
+# Distributed mode: per-host spacing and caps are coordinated through the shared
+# Redis, so you can run this exact image on N servers pointing at the same Redis
+# + Postgres and the fleet stays collectively polite (no host gets hit N×).
+# Work is already split safely — the frontier claim (ZPOPMIN) and the "crawled"
+# dedup set are atomic in Redis, so nodes never double-crawl a URL.
+# Scale out by launching more replicas of this container on more hosts.
+ENV CRAWLER_DISTRIBUTED=1
+CMD ["python", "-m", "serika", "loop", "--max-pages", "100000", "--max-depth", "4", "--per-host", "500", "--workers", "300", "--delay", "0.2", "--timeout", "8", "--rest-time", "60"]

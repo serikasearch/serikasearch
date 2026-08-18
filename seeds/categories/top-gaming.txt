@@ -63,13 +63,20 @@ https://www.moddb.com
 # specific character ("serika") found nothing. These wiki & guide hubs carry
 # deep per-game, per-character content (incl. gacha/anime games like Blue
 # Archive, Genshin, Honkai, FGO) and link out to thousands of character pages.
+# NOTE: Fandom (*.fandom.com) and MobyGames/Liquipedia are intentionally
+# excluded — Fandom serves every bot a Cloudflare JS challenge and the others
+# Disallow crawlers in robots.txt, so they only waste frontier slots.
+# The /wiki/Characters entry points are listed explicitly so the crawler
+# reaches individual character pages within a couple of link hops.
 https://bluearchive.wiki
-https://bluearchive.fandom.com
-https://www.fandom.com/games
+https://bluearchive.wiki/wiki/Characters
 https://gamepress.gg
 https://game8.co
 https://gamewith.net
 https://www.prydwen.gg
 https://www.giantbomb.com/games
-https://liquipedia.net
-https://www.mobygames.com
+# wiki.gg hosts many independent game wikis (crawlable, no Cloudflare wall).
+https://wiki.gg
+https://minecraft.wiki
+https://terraria.wiki.gg
+https://stardewvalleywiki.com
