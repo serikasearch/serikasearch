@@ -1,0 +1,64 @@
+# top-adult — 50 adult & porn sites
+# Category is derived from this filename ("adult").
+#   python -m serika crawl seeds/top-adult.txt
+# serikacrawler checks each site's robots.txt and skips whatever it disallows.
+
+# --- tube & social video ---
+https://pornhub.com
+https://xvideos.com
+https://xnxx.com
+https://xhamster.com
+https://redtube.com
+https://youporn.com
+https://tube8.com
+https://spankbang.com
+https://drtuber.com
+https://txxx.com
+https://hclips.com
+https://upornia.com
+https://beeg.com
+https://eporner.com
+https://hqporner.com
+https://pornone.com
+https://motherless.com
+https://efukt.com
+
+# --- premium studios & networks ---
+https://brazzers.com
+https://realitykings.com
+https://naughtyamerica.com
+https://bangbros.com
+https://mofos.com
+https://teamskeet.com
+https://evilangel.com
+https://julesjordan.com
+https://kink.com
+https://twistys.com
+https://babes.com
+https://wicked.com
+https://private.com
+https://playboy.com
+https://penthouse.com
+https://hustler.com
+
+# --- live cams ---
+https://chaturbate.com
+https://bongacams.com
+https://livejasmin.com
+https://stripchat.com
+https://cam4.com
+https://myfreecams.com
+https://jerkmate.com
+
+# --- amateur & creator platforms ---
+https://onlyfans.com
+https://manyvids.com
+https://clips4sale.com
+
+# --- photos & aggregators ---
+https://pornpics.com
+https://sex.com
+https://nude-gals.com
+https://imgur.com/r/nsfw
+https://fapello.com
+https://coomer.party
